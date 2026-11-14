@@ -73,10 +73,10 @@ def test_ambiguous_request_asks_requester_with_strengths():
 
     names = scripted.decide(state(raw="need augmentin", medication=False), rec)
 
-    assert names == ["search_medications", "ask_requester"]
+    assert _collapse(names) == ["search_medications", "ask_requester"]
     question = rec.kwargs_of("ask_requester")[0]["question"]
     assert "1000mg" in question and "625mg" in question
-    assert rec.kwargs_of("search_medications")[0]["query"] == "need augmentin"
+    assert "augmentin" in [k["query"] for k in rec.kwargs_of("search_medications")]
 
 
 def test_one_strength_match_sets_medication_then_proposes_nearest_three():
@@ -90,7 +90,7 @@ def test_one_strength_match_sets_medication_then_proposes_nearest_three():
 
     names = scripted.decide(state(raw="need augmentin 1g tabs x2", medication=False), rec)
 
-    assert names == ["search_medications", "set_medication", "find_candidates", "propose_targets", "wait"]
+    assert _collapse(names) == ["search_medications", "set_medication", "find_candidates", "propose_targets", "wait"]
     assert rec.kwargs_of("set_medication")[0] == {"enquiry_id": "enq-1", "medication_id": "med-1000"}
     assert rec.kwargs_of("propose_targets")[0]["branch_ids"] == ["b1", "b2", "b3"]
     assert rec.kwargs_of("wait")[0] == {"enquiry_id": "enq-1", "minutes": 5}
@@ -219,3 +219,12 @@ def test_failed_candidate_lookup_waits_instead_of_closing():
     names = scripted.decide(state(targets=[]), rec)
 
     assert names == ["find_candidates", "wait"]
+
+
+def _collapse(names):
+    """Word-by-word catalogue search makes several search calls in a row; count them as one step."""
+    out = []
+    for n in names:
+        if not (out and n == out[-1] == "search_medications"):
+            out.append(n)
+    return out

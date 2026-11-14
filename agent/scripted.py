@@ -100,14 +100,26 @@ def _choose_medication(enq: dict, eid, do) -> str | None:
     if question and not answer:
         return None  # asked already, the requester has not answered yet
 
-    result = do("search_medications", query=_search_query(raw))
-    if "error" in result:
+    # The catalogue search is a substring match, so search word by word and merge the results.
+    words = [w for w in _search_query(raw + " " + answer).split() if len(w) >= 4]
+    matches, seen, errors = [], set(), 0
+    for word in words[:6]:
+        result = do("search_medications", query=word)
+        if "error" in result:
+            errors += 1
+            continue
+        for m in result.get("matches", []):
+            if isinstance(m, dict) and m.get("medication_id") and m["medication_id"] not in seen:
+                seen.add(m["medication_id"])
+                matches.append(m)
+    if errors and not matches:
         do("wait", enquiry_id=eid, minutes=WAIT_MINUTES)
         return None
-    matches = [m for m in result.get("matches", []) if isinstance(m, dict) and m.get("medication_id")]
 
     wanted = _strengths(answer if answer else raw)
     picks = [m for m in matches if _strengths(m.get("strength")) & wanted]
+    if not wanted and len(matches) == 1:
+        picks = matches  # one catalogue match and no strength given: unambiguous
     if len(picks) == 1:
         medication_id = picks[0]["medication_id"]
         do("set_medication", enquiry_id=eid, medication_id=medication_id)

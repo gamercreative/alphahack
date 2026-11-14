@@ -27,6 +27,22 @@ MAX_STEPS_MESSAGE = "max steps reached; left open for a human"
 POLICIES = ("model", "scripted")
 _policy_override: str | None = None  # set from --policy in main()
 
+
+def _load_dotenv(path: Path) -> None:
+    """Loads KEY=VALUE lines from agent/.env (git-ignored, holds the API key). Real env vars win."""
+    if not path.is_file():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+# Must run before Cornilia is imported: its settings read the environment at import time.
+_load_dotenv(AGENT_DIR / ".env")
+
 # Cornilia reads CORNILIA_TOOLS_DIR when it is imported, so set the default first
 os.environ.setdefault("CORNILIA_TOOLS_DIR", str(TOOLS_DIR))
 

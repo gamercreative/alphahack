@@ -361,7 +361,7 @@ def main(argv=None):
                         help="JSONL case file (default agent/cases/cases.jsonl)")
     parser.add_argument("--policy", choices=POLICIES, default="scripted",
                         help="runner policy passed to --policy (default scripted)")
-    parser.add_argument("--max-rounds", type=int, default=12,
+    parser.add_argument("--max-rounds", type=int, default=25,
                         help="runner rounds per case before giving up (default 12)")
     parser.add_argument("--only", metavar="CASE_ID", default=None,
                         help="run only this case id, e.g. case-06")

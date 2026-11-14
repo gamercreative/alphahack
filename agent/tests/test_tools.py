@@ -187,7 +187,7 @@ def test_ask_requester_returns_run_ends_note(fake):
     assert f.calls[0][:3] == ("POST", "/api/v1/enquiries/E1/clarification-request", {"question": "Which strength?"})
     assert out["ok"] is True
     assert out["status"] == "awaiting_clarification"
-    assert out["note"].startswith("Run ends here")
+    assert out["note"].startswith("STOP")
 
 
 def test_find_candidates_clamps_limit_and_maps_fields(fake):

@@ -141,6 +141,15 @@ def build_model(provider, tools, model_name, tracer):
     )
 
 
+# Tools that end a run. Code enforces it: small models sometimes keep calling tools after
+# "STOP", so the tracer raises RunEnded right after one of these succeeds.
+TERMINAL_TOOLS = {"wait", "close_enquiry", "ask_requester"}
+
+
+class RunEnded(Exception):
+    """Raised by the tracer after a successful terminal tool; the run is complete."""
+
+
 def make_tracer(run_id: str):
     def tracer(name, arguments, result, seconds):
         args = arguments
@@ -172,6 +181,8 @@ def make_tracer(run_id: str):
             print(f"[run {run_id}] could not record tool call {name}: {e}")
         flag = " ERROR" if is_error else ""
         print(f"[run {run_id}] tool {name} {duration_ms}ms{flag}")
+        if name in TERMINAL_TOOLS and not is_error:
+            raise RunEnded(name)
 
     return tracer
 
@@ -246,6 +257,8 @@ def process_wake(wake: dict) -> str:
         tools = CreateTools()
         model = build_model(provider, tools, model_name, make_tracer(run_id))
         model.MultiShotMessage(build_prompt(trigger, state_json))
+    except RunEnded:
+        pass  # a terminal tool succeeded: status stays "completed"
     except MaxStepsError:
         status, error = "failed", MAX_STEPS_MESSAGE
     except Exception as e:

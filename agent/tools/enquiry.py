@@ -162,7 +162,7 @@ def ask_requester(
     return {
         "ok": True,
         "status": out.get("status"),
-        "note": "Run ends here; you will be woken when the requester answers.",
+        "note": "STOP: the question is sent. Do not call any more tools; end this run now with a one-line summary. You will be woken when the requester answers.",
     }
 
 
@@ -273,7 +273,8 @@ def wait(
     error = _http.tool_error(out)
     if error:
         return error
-    return {"ok": True, "status": out.get("status"), "next_wake_at": out.get("next_wake_at")}
+    return {"ok": True, "status": out.get("status"), "next_wake_at": out.get("next_wake_at"),
+            "note": "STOP: waiting is set. Do not call any more tools; end this run now with a one-line summary."}
 
 
 @tool
@@ -287,4 +288,4 @@ def close_enquiry(
     error = _http.tool_error(out)
     if error:
         return error
-    return {"ok": True, "outcome": outcome, "status": out.get("status")}
+    return {"ok": True, "outcome": outcome, "status": out.get("status"), "note": "STOP: the enquiry is closed. End this run now."}

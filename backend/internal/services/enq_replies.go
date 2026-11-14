@@ -138,6 +138,9 @@ func (s *EnquiryService) RequestClarification(ctx context.Context, a Actor, id, 
 		if isFinal(e) {
 			return errEnquiryClosed()
 		}
+		if e.Status == queries.EnquiryAwaitingClarification {
+			return Conflict("a question is already waiting for the requester; stop now and end this run")
+		}
 		question = strings.TrimSpace(question)
 		if n := utf8.RuneCountInString(question); n < 1 || n > maxClarificationChars {
 			return Invalid("question must be 1 to %d characters", maxClarificationChars)

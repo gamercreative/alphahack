@@ -142,7 +142,7 @@ failures on the same thing: write it down in PLAN.md's log and choose a simpler 
 
 ## Ready-made lead prompts
 
-- `LEAD_PROMPT_cornilia_guard.md`: secure DB access for agent tools (Cornilia -> signed request ->
+- `docs/lead-prompts/LEAD_PROMPT_cornilia_guard.md`: secure DB access for agent tools (Cornilia -> signed request ->
   Go agent gateway -> Postgres). Needs `cornilia-guard/` in the root and the owner's OK after Phase 0.
 
 ## Lead checklist per wave

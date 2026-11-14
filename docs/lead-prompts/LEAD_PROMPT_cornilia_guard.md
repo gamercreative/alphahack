@@ -2,7 +2,7 @@
 
 How to run it, from the alphahack root (`/Users/akramseifeddine/Documents/alphahack`):
 
-1. Install the subagents once (scout, builder, tester, all Haiku): `mkdir -p .claude/agents && cp claude-agents/*.md .claude/agents/`
+1. Install the subagents once (scout, builder, tester, all Haiku): `mkdir -p .claude/agents && cp docs/lead-prompts/agents/*.md .claude/agents/`
 2. Unzip `cornilia-guard/` into this root folder so the path below resolves. **It is not here yet.**
 3. If `backend/` does not exist yet, create it first (`cp -R Backend_Template backend`, WORKFLOW W1).
 4. Launch `claude --model claude-fable-5-2` and paste everything inside the fence below.

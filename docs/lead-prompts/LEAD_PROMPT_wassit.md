@@ -61,7 +61,7 @@ API user with its own credential, never a side door.
 - Go backend: /Users/akramseifeddine/Documents/alphahack/backend/ (project copy of Backend_Template; never edit Backend_Template itself)
 - Agent: /Users/akramseifeddine/Documents/alphahack/agent/ (configs.py, tools/*.py, prompts/system.md, runner.py; Cornilia installed pinned v0.1.0)
 - Cornilia core: /Users/akramseifeddine/Documents/alphahack/Cornilia/ (reference only; no event code in src/)
-- Security layer: /Users/akramseifeddine/Documents/alphahack/cornilia-guard/ and LEAD_PROMPT_cornilia_guard.md.
+- Security layer: /Users/akramseifeddine/Documents/alphahack/cornilia-guard/ and docs/lead-prompts/LEAD_PROMPT_cornilia_guard.md.
   If backend/ already has agentgw, agent tools go through it. If not, use the AGENT_TOKEN header
   scheme below and keep the tool HTTP calls in one helper (agent/tools/_http.py) so the guard can
   replace it later without touching the tools.

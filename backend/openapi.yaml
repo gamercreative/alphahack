@@ -1,0 +1,1069 @@
+openapi: 3.0.3
+info:
+  title: Alphahack Agent Backend
+  version: 0.1.0
+  description: >
+    Agents, conversations, messages and agent runs with a tool-call trace.
+    Every non-2xx response uses the Error schema.
+servers:
+  - url: http://localhost:8080
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness and database reachability
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+        "500": { $ref: "#/components/responses/Error" }
+
+  /v1/agents:
+    get:
+      summary: List agents (newest first)
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Agent" }
+        "400": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create an agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAgent" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /v1/agents/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Get an agent
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      summary: Update an agent (only the fields present are changed)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateAgent" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete an agent and everything under it
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/conversations:
+    get:
+      summary: List conversations (most recently active first)
+      parameters:
+        - name: agent_id
+          in: query
+          schema: { type: string }
+          description: Only conversations of this agent
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Conversation" }
+        "400": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Start a conversation with an agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateConversation" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Conversation" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/conversations/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Get a conversation
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Conversation" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete a conversation with its messages and runs
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/conversations/{id}/messages:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: List messages (oldest first)
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Message" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Send a user message and run the agent
+      description: >
+        Synchronous: stores the user message, runs the agent loop (model calls
+        plus tool calls) and returns the assistant reply with the run and its
+        tool-call trace. Can take a long time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SendMessage" }
+      responses:
+        "201":
+          description: The agent replied
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+        "504": { $ref: "#/components/responses/Error" }
+
+  /v1/conversations/{id}/messages/stream:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Send a user message and stream the agent turn (server-sent events)
+      description: |
+        Same request as POST /messages, answered as a text/event-stream.
+        Errors that happen before the turn starts (bad body, unknown
+        conversation) are ordinary JSON errors with their real status.
+        Once the stream is open the status is 200 and the events are:
+
+        | event         | data                                                    |
+        |---------------|---------------------------------------------------------|
+        | `start`       | `{"run": Run, "user_message": Message}`                 |
+        | `delta`       | `{"text": "..."}` assistant text chunk                  |
+        | `thinking`    | `{"text": "..."}` model reasoning chunk (if exposed)    |
+        | `tool_call`   | same shape as `tool_result`, output fields still empty  |
+        | `tool_result` | `{"name", "input", "output", "is_error", "duration_ms"}`|
+        | `done`        | ChatResult (same body as the non-streaming route)       |
+        | `error`       | Error (same body as any other failure); ends the stream |
+
+        Exactly one of `done` or `error` is sent last. Text deltas cover every
+        model call of the turn, including text written before tool calls.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SendMessage" }
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/conversations/{id}/runs:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: List runs of a conversation (newest first)
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Run" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/runs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Get a run with its tool calls
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/tools:
+    get:
+      summary: List the tools the agent can call
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Tool" }
+
+  /api/v1/branches:
+    get:
+      summary: List pharmacy branches
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Branch" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /api/v1/branches/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Get a pharmacy branch
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Branch" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/branches/{id}/inventory:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: List inventory batches at a branch (FEFO order)
+      parameters:
+        - name: medication_id
+          in: query
+          schema: { type: string }
+          description: Filter batches by medication ID
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/InventoryBatch" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/medications:
+    get:
+      summary: List or search medications
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Optional search query across brand name, active ingredient and therapeutic class
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Medication" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /api/v1/medications/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Get a medication with live sellable stock per branch
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MedicationDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/customers:
+    get:
+      summary: List customers
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Customer" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /api/v1/customers/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Get a customer profile
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      summary: Update a customer profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateCustomerInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Customer" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/customers/{id}/prescriptions:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: List prescriptions for a customer
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string }
+          description: Filter prescriptions by status
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Prescription" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Upload a new prescription for a customer (status starts as pending)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePrescriptionInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Prescription" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/customers/{id}/refills:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: List chronic refill subscriptions for a customer
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/RefillSubscription" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create a chronic refill subscription for a customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRefillInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RefillSubscription" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/refills/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      summary: Update a refill subscription status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateRefillStatusInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RefillSubscription" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/carts:
+    post:
+      summary: Create or load the active cart for a customer at a branch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCartInput" }
+      responses:
+        "201":
+          description: Created or active cart loaded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CartDetail" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/carts/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Get a cart with its items and subtotal
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CartDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/carts/{id}/items:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Add or update a medication item in the cart with clinical and stock guardrails
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddCartItemInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CartDetail" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/carts/{id}/items/{medication_id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - name: medication_id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      summary: Remove a medication item from the cart
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CartDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/carts/{id}/checkout:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Atomically checkout a cart with FEFO batch allocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CheckoutCartInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrderDetail" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/customers/{id}/orders:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: List orders for a customer
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Order" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/orders/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Get an order with its batch-allocated line items
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrderDetail" }
+        "404": { $ref: "#/components/responses/Error" }
+
+components:
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code:
+              type: string
+              enum:
+                - bad_request
+                - validation_failed
+                - not_found
+                - method_not_allowed
+                - conflict
+                - internal_error
+                - upstream_error
+                - timeout
+            message: { type: string }
+            request_id: { type: string }
+
+    ListMeta:
+      type: object
+      properties:
+        limit: { type: integer }
+        offset: { type: integer }
+
+    Agent:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        system_prompt: { type: string }
+        model: { type: string, description: Empty means the server default model }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CreateAgent:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        system_prompt: { type: string, maxLength: 100000 }
+        model: { type: string }
+
+    UpdateAgent:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        system_prompt: { type: string, maxLength: 100000 }
+        model: { type: string }
+
+    Conversation:
+      type: object
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        title: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CreateConversation:
+      type: object
+      required: [agent_id]
+      properties:
+        agent_id: { type: string }
+        title: { type: string, maxLength: 200 }
+
+    Message:
+      type: object
+      properties:
+        id: { type: string }
+        conversation_id: { type: string }
+        run_id: { type: string, nullable: true }
+        role: { type: string, enum: [user, assistant] }
+        content: { type: string }
+        created_at: { type: string, format: date-time }
+
+    SendMessage:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1, maxLength: 100000 }
+
+    Run:
+      type: object
+      properties:
+        id: { type: string }
+        conversation_id: { type: string }
+        status: { type: string, enum: [running, completed, failed] }
+        stop_reason: { type: string, example: end_turn }
+        error: { type: string }
+        model: { type: string }
+        input_tokens: { type: integer, format: int64 }
+        output_tokens: { type: integer, format: int64 }
+        iterations: { type: integer }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time, nullable: true }
+
+    ToolCall:
+      type: object
+      properties:
+        id: { type: string }
+        run_id: { type: string }
+        name: { type: string }
+        input: { type: object, additionalProperties: true }
+        output: { type: string }
+        is_error: { type: boolean }
+        duration_ms: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    RunDetail:
+      allOf:
+        - $ref: "#/components/schemas/Run"
+        - type: object
+          properties:
+            tool_calls:
+              type: array
+              items: { $ref: "#/components/schemas/ToolCall" }
+
+    ChatResult:
+      type: object
+      properties:
+        user_message: { $ref: "#/components/schemas/Message" }
+        assistant_message: { $ref: "#/components/schemas/Message" }
+        run: { $ref: "#/components/schemas/Run" }
+        tool_calls:
+          type: array
+          items: { $ref: "#/components/schemas/ToolCall" }
+
+    Tool:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        input_schema: { type: object, additionalProperties: true }
+
+    Branch:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        city: { type: string }
+        address: { type: string }
+        phone: { type: string }
+        supports_delivery: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    Medication:
+      type: object
+      properties:
+        id: { type: string }
+        brand_name: { type: string }
+        active_ingredient: { type: string }
+        therapeutic_class: { type: string }
+        dosage_form:
+          type: string
+          enum: [tablet, capsule, syrup, inhaler, injection, cream, drops]
+        strength: { type: string }
+        rx_required: { type: boolean }
+        controlled: { type: boolean }
+        chronic_eligible: { type: boolean }
+        unit_price_cents: { type: integer, format: int64 }
+        contraindication_tags:
+          type: array
+          items: { type: string }
+        description: { type: string }
+        created_at: { type: string, format: date-time }
+
+    InventoryBatch:
+      type: object
+      properties:
+        id: { type: string }
+        branch_id: { type: string }
+        medication_id: { type: string }
+        batch_number: { type: string }
+        expiry_date: { type: string, format: date-time }
+        quantity_on_hand: { type: integer }
+        quantity_reserved: { type: integer }
+        quantity_available: { type: integer }
+        is_recalled: { type: boolean }
+        recall_reason: { type: string }
+        updated_at: { type: string, format: date-time }
+
+    BranchStockSummary:
+      type: object
+      properties:
+        branch_id: { type: string }
+        branch_name: { type: string }
+        city: { type: string }
+        available_quantity: { type: integer }
+        earliest_expiry: { type: string, format: date-time, nullable: true }
+
+    MedicationDetail:
+      type: object
+      properties:
+        medication: { $ref: "#/components/schemas/Medication" }
+        branch_availability:
+          type: array
+          items: { $ref: "#/components/schemas/BranchStockSummary" }
+
+    Customer:
+      type: object
+      properties:
+        id: { type: string }
+        full_name: { type: string }
+        phone: { type: string }
+        email: { type: string }
+        address: { type: string }
+        allergies:
+          type: array
+          items: { type: string }
+        chronic_conditions:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    UpdateCustomerInput:
+      type: object
+      properties:
+        full_name: { type: string }
+        phone: { type: string }
+        email: { type: string }
+        address: { type: string }
+        allergies:
+          type: array
+          items: { type: string }
+        chronic_conditions:
+          type: array
+          items: { type: string }
+
+    Prescription:
+      type: object
+      properties:
+        id: { type: string }
+        customer_id: { type: string }
+        medication_id: { type: string }
+        doctor_name: { type: string }
+        dosage_instructions: { type: string }
+        allowed_refills: { type: integer }
+        remaining_refills: { type: integer }
+        status:
+          type: string
+          enum: [pending, verified, rejected, expired]
+        notes: { type: string }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    CreatePrescriptionInput:
+      type: object
+      required: [medication_id, doctor_name, dosage_instructions, allowed_refills, expires_at]
+      properties:
+        medication_id: { type: string }
+        doctor_name: { type: string }
+        dosage_instructions: { type: string }
+        allowed_refills: { type: integer }
+        notes: { type: string }
+        expires_at: { type: string, format: date-time }
+
+    Cart:
+      type: object
+      properties:
+        id: { type: string }
+        customer_id: { type: string }
+        branch_id: { type: string }
+        status:
+          type: string
+          enum: [active, checked_out, abandoned]
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CartItem:
+      type: object
+      properties:
+        id: { type: string }
+        cart_id: { type: string }
+        medication_id: { type: string }
+        prescription_id: { type: string, nullable: true }
+        quantity: { type: integer }
+        unit_price_cents: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+
+    CartDetail:
+      type: object
+      properties:
+        cart: { $ref: "#/components/schemas/Cart" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/CartItem" }
+        subtotal_cents: { type: integer, format: int64 }
+
+    CreateCartInput:
+      type: object
+      required: [customer_id, branch_id]
+      properties:
+        customer_id: { type: string }
+        branch_id: { type: string }
+
+    AddCartItemInput:
+      type: object
+      required: [medication_id, quantity]
+      properties:
+        medication_id: { type: string }
+        prescription_id: { type: string, nullable: true }
+        quantity: { type: integer, minimum: 1 }
+
+    CheckoutCartInput:
+      type: object
+      required: [fulfillment_type]
+      properties:
+        fulfillment_type:
+          type: string
+          enum: [pickup, delivery]
+        delivery_address: { type: string }
+
+    Order:
+      type: object
+      properties:
+        id: { type: string }
+        customer_id: { type: string }
+        branch_id: { type: string }
+        cart_id: { type: string, nullable: true }
+        status:
+          type: string
+          enum: [pending_rx, confirmed, ready_for_pickup, out_for_delivery, completed, cancelled]
+        fulfillment_type:
+          type: string
+          enum: [pickup, delivery]
+        delivery_address: { type: string }
+        total_cents: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    OrderItem:
+      type: object
+      properties:
+        id: { type: string }
+        order_id: { type: string }
+        medication_id: { type: string }
+        batch_id: { type: string }
+        quantity: { type: integer }
+        unit_price_cents: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+
+    OrderDetail:
+      type: object
+      properties:
+        order: { $ref: "#/components/schemas/Order" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/OrderItem" }
+
+    RefillSubscription:
+      type: object
+      properties:
+        id: { type: string }
+        customer_id: { type: string }
+        medication_id: { type: string }
+        branch_id: { type: string }
+        prescription_id: { type: string, nullable: true }
+        interval_days: { type: integer }
+        next_refill_at: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [active, paused, cancelled]
+        created_at: { type: string, format: date-time }
+
+    CreateRefillInput:
+      type: object
+      required: [medication_id, branch_id, interval_days]
+      properties:
+        medication_id: { type: string }
+        branch_id: { type: string }
+        prescription_id: { type: string, nullable: true }
+        interval_days: { type: integer, minimum: 1 }
+        next_refill_at: { type: string, format: date-time, nullable: true }
+
+    UpdateRefillStatusInput:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [active, paused, cancelled]

@@ -1,0 +1,232 @@
+// Source of truth for the data model. Keep in sync with db/migrations/*.up.sql
+// and internal/queries/models.go. Paste into dbdiagram.io to view.
+
+Project alphahack {
+  database_type: 'PostgreSQL'
+  Note: 'Agent backend: agents own conversations; each user turn creates a run with a tool-call trace.'
+}
+
+Table agents {
+  id text [pk, default: `gen_random_uuid()::text`]
+  name text [not null, note: 'non-empty']
+  system_prompt text [not null, default: '']
+  model text [not null, default: '', note: 'empty = server default (ANTHROPIC_MODEL)']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table conversations {
+  id text [pk, default: `gen_random_uuid()::text`]
+  agent_id text [not null, ref: > agents.id, note: 'ON DELETE CASCADE']
+  title text [not null, default: '']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`, note: 'bumped on every new message']
+
+  indexes {
+    (agent_id, created_at) [name: 'conversations_agent_idx']
+  }
+}
+
+Table runs {
+  id text [pk, default: `gen_random_uuid()::text`]
+  conversation_id text [not null, ref: > conversations.id, note: 'ON DELETE CASCADE']
+  status text [not null, default: 'running', note: 'running | completed | failed']
+  stop_reason text [not null, default: '', note: 'end_turn | max_tokens | refusal | max_iterations | ...']
+  error text [not null, default: '']
+  model text [not null, default: '']
+  input_tokens bigint [not null, default: 0]
+  output_tokens bigint [not null, default: 0]
+  iterations integer [not null, default: 0, note: 'model round-trips in the agent loop']
+  started_at timestamptz [not null, default: `now()`]
+  finished_at timestamptz [null]
+
+  indexes {
+    (conversation_id, started_at) [name: 'runs_conversation_idx']
+  }
+}
+
+Table messages {
+  id text [pk, default: `gen_random_uuid()::text`]
+  seq bigint [not null, increment, note: 'stable ordering within a conversation']
+  conversation_id text [not null, ref: > conversations.id, note: 'ON DELETE CASCADE']
+  run_id text [null, ref: > runs.id, note: 'ON DELETE SET NULL']
+  role text [not null, note: 'user | assistant']
+  content text [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (conversation_id, seq) [name: 'messages_conversation_seq_idx']
+  }
+}
+
+Table tool_calls {
+  id text [pk, default: `gen_random_uuid()::text`]
+  seq bigint [not null, increment]
+  run_id text [not null, ref: > runs.id, note: 'ON DELETE CASCADE']
+  name text [not null]
+  input jsonb [not null, default: '{}']
+  output text [not null, default: '']
+  is_error boolean [not null, default: false]
+  duration_ms integer [not null, default: 0]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (run_id, seq) [name: 'tool_calls_run_seq_idx']
+  }
+}
+
+// ---- B2C pharmacy (0002_pharmacy_base) --------------------------------------
+// Money is bigint cents. Tag lists are jsonb arrays of strings.
+
+Table branches {
+  id text [pk, default: `gen_random_uuid()::text`]
+  name text [not null, note: 'non-empty']
+  city text [not null, note: 'non-empty']
+  address text [not null, default: '']
+  phone text [not null, default: '']
+  supports_delivery boolean [not null, default: true]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table medications {
+  id text [pk, default: `gen_random_uuid()::text`]
+  brand_name text [not null, note: 'non-empty']
+  active_ingredient text [not null, note: 'non-empty']
+  therapeutic_class text [not null, default: '']
+  dosage_form text [not null, note: 'tablet | capsule | syrup | inhaler | injection | cream | drops']
+  strength text [not null, note: 'non-empty']
+  rx_required boolean [not null, default: false]
+  controlled boolean [not null, default: false]
+  chronic_eligible boolean [not null, default: false]
+  unit_price_cents bigint [not null, note: '>= 0']
+  contraindication_tags jsonb [not null, default: '[]']
+  description text [not null, default: '']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    active_ingredient [name: 'medications_active_ingredient_idx']
+    brand_name [name: 'medications_brand_name_idx']
+  }
+}
+
+Table inventory_batches {
+  id text [pk, default: `gen_random_uuid()::text`]
+  branch_id text [not null, ref: > branches.id, note: 'ON DELETE CASCADE']
+  medication_id text [not null, ref: > medications.id, note: 'ON DELETE CASCADE']
+  batch_number text [not null, note: 'non-empty']
+  expiry_date timestamptz [not null]
+  quantity_on_hand integer [not null, default: 0, note: '>= 0']
+  quantity_reserved integer [not null, default: 0, note: '0 <= reserved <= on_hand']
+  is_recalled boolean [not null, default: false]
+  recall_reason text [not null, default: '']
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (branch_id, medication_id, batch_number) [unique, name: 'inventory_batches_branch_med_batch_uidx']
+    (branch_id, medication_id, expiry_date) [name: 'inventory_batches_fefo_idx']
+  }
+}
+
+Table customers {
+  id text [pk, default: `gen_random_uuid()::text`]
+  full_name text [not null, note: 'non-empty']
+  phone text [not null, unique, note: 'non-empty']
+  email text [not null, default: '']
+  address text [not null, default: '']
+  allergies jsonb [not null, default: '[]']
+  chronic_conditions jsonb [not null, default: '[]']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table prescriptions {
+  id text [pk, default: `gen_random_uuid()::text`]
+  customer_id text [not null, ref: > customers.id, note: 'ON DELETE CASCADE']
+  medication_id text [not null, ref: > medications.id, note: 'ON DELETE RESTRICT']
+  doctor_name text [not null, note: 'non-empty']
+  dosage_instructions text [not null, default: '']
+  allowed_refills integer [not null, default: 1, note: '>= 0']
+  remaining_refills integer [not null, default: 1, note: '0 <= remaining <= allowed']
+  status text [not null, default: 'pending', note: 'pending | verified | rejected | expired']
+  notes text [not null, default: '']
+  expires_at timestamptz [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (customer_id, status) [name: 'prescriptions_customer_status_idx']
+  }
+}
+
+Table carts {
+  id text [pk, default: `gen_random_uuid()::text`]
+  customer_id text [not null, ref: > customers.id, note: 'ON DELETE CASCADE']
+  branch_id text [not null, ref: > branches.id, note: 'ON DELETE CASCADE']
+  status text [not null, default: 'active', note: 'active | checked_out | abandoned']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (customer_id, status) [name: 'carts_customer_status_idx']
+  }
+}
+
+Table cart_items {
+  id text [pk, default: `gen_random_uuid()::text`]
+  cart_id text [not null, ref: > carts.id, note: 'ON DELETE CASCADE']
+  medication_id text [not null, ref: > medications.id, note: 'ON DELETE RESTRICT']
+  prescription_id text [null, ref: > prescriptions.id, note: 'ON DELETE SET NULL']
+  quantity integer [not null, note: '> 0']
+  unit_price_cents bigint [not null, note: '>= 0']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (cart_id, medication_id) [unique, name: 'cart_items_cart_med_uidx']
+  }
+}
+
+Table orders {
+  id text [pk, default: `gen_random_uuid()::text`]
+  customer_id text [not null, ref: > customers.id, note: 'ON DELETE RESTRICT']
+  branch_id text [not null, ref: > branches.id, note: 'ON DELETE RESTRICT']
+  cart_id text [null, ref: > carts.id, note: 'ON DELETE SET NULL']
+  status text [not null, default: 'confirmed', note: 'pending_rx | confirmed | ready_for_pickup | out_for_delivery | completed | cancelled']
+  fulfillment_type text [not null, note: 'pickup | delivery']
+  delivery_address text [not null, default: '']
+  total_cents bigint [not null, note: '>= 0']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (customer_id, created_at) [name: 'orders_customer_created_idx']
+  }
+}
+
+Table order_items {
+  id text [pk, default: `gen_random_uuid()::text`]
+  order_id text [not null, ref: > orders.id, note: 'ON DELETE CASCADE']
+  medication_id text [not null, ref: > medications.id, note: 'ON DELETE RESTRICT']
+  batch_id text [not null, ref: > inventory_batches.id, note: 'ON DELETE RESTRICT']
+  quantity integer [not null, note: '> 0']
+  unit_price_cents bigint [not null, note: '>= 0']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    order_id [name: 'order_items_order_idx']
+  }
+}
+
+Table refill_subscriptions {
+  id text [pk, default: `gen_random_uuid()::text`]
+  customer_id text [not null, ref: > customers.id, note: 'ON DELETE CASCADE']
+  medication_id text [not null, ref: > medications.id, note: 'ON DELETE RESTRICT']
+  branch_id text [not null, ref: > branches.id, note: 'ON DELETE RESTRICT']
+  prescription_id text [null, ref: > prescriptions.id, note: 'ON DELETE SET NULL']
+  interval_days integer [not null, note: '7..90']
+  next_refill_at timestamptz [not null]
+  status text [not null, default: 'active', note: 'active | paused | cancelled']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (customer_id, next_refill_at) [name: 'refill_subscriptions_customer_idx']
+  }
+}

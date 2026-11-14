@@ -84,3 +84,5 @@ log the milestone in the owner's Notion Command Center.
 
 - 2026-11-13 Plan and workflows written; waiting for the theme.
 - 2026-11-14 Wassit Phase 0 done: backend/ copied from Backend_Template, recon complete, CONTRACT.md drafted; waiting for owner OK before W2.
+- 2026-11-14 W2-W4 done: backend slices, agent tools/runner; go test green, smoke 83/83, acceptance 70/70.
+- 2026-11-14 W5 done: scripted fallback (14/20 placeholder cases), demo scripts, DEMO.md; agent on Claude Haiku 5.5: check 2 passes, 20 placeholder cases 15/20 for $0.11 total.

@@ -45,6 +45,13 @@ type budgetState struct {
 	exp  int64
 }
 
+// idemEntry is one write's idempotency record: the body hash it was reserved
+// with, and the cached response (nil while the write is still in progress).
+type idemEntry struct {
+	argsHash string
+	resp     []byte
+}
+
 type Gateway struct {
 	cfg    Config
 	ops    map[string]Op
@@ -52,7 +59,7 @@ type Gateway struct {
 
 	mu      sync.Mutex
 	budgets map[string]*budgetState // sid -> usage
-	idem    map[string][]byte       // sid|key -> cached response
+	idem    map[string]idemEntry    // sid|key -> cached response
 }
 
 func New(cfg Config) (*Gateway, error) {
@@ -79,7 +86,7 @@ func New(cfg Config) (*Gateway, error) {
 		ops:     map[string]Op{},
 		nonces:  newNonceCache(2 * cfg.MaxSkew),
 		budgets: map[string]*budgetState{},
-		idem:    map[string][]byte{},
+		idem:    map[string]idemEntry{},
 	}, nil
 }
 
@@ -195,10 +202,18 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.mu.Lock()
 		cached, hit := g.idem[idemKey]
 		if !hit {
-			g.idem[idemKey] = nil // reserve: a concurrent duplicate sees "in progress"
+			// reserve: a concurrent duplicate sees "in progress"
+			g.idem[idemKey] = idemEntry{argsHash: e.ArgsHash}
 		}
 		g.mu.Unlock()
-		if hit && cached == nil {
+		if hit && cached.argsHash != e.ArgsHash {
+			// Same key, different body: refuse and leave the existing entry alone.
+			// This returns before the release defer below is installed.
+			e.Outcome = "idempotency_key_reused"
+			fail(w, 422, "idempotency_key_reused", "this Idempotency-Key was already used with different arguments")
+			return
+		}
+		if hit && cached.resp == nil {
 			e.Outcome = "in_progress"
 			fail(w, 409, "in_progress", "an identical write is already running")
 			return
@@ -218,7 +233,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Idempotent-Replay", "true")
 			w.WriteHeader(200)
-			_, _ = w.Write(cached)
+			_, _ = w.Write(cached.resp)
 			return
 		}
 	}
@@ -280,7 +295,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if idemKey != "" {
 		g.mu.Lock()
-		g.idem[idemKey] = out
+		g.idem[idemKey] = idemEntry{argsHash: e.ArgsHash, resp: out}
 		g.mu.Unlock()
 		markCommitted()
 	}

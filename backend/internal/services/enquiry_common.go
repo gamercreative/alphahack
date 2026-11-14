@@ -43,6 +43,7 @@ type EnquiryConfig struct {
 	AgentPriceInPerMTok  float64
 	AgentPriceOutPerMTok float64
 	SessionTTL           time.Duration // default 12h
+	WaitUnit             time.Duration // one wait() "minute"; default 1m (demo can shrink it)
 	Now                  func() time.Time
 }
 
@@ -54,6 +55,9 @@ type EnquiryService struct {
 func NewEnquiryService(store queries.Querier, cfg EnquiryConfig) *EnquiryService {
 	if cfg.SessionTTL == 0 {
 		cfg.SessionTTL = 12 * time.Hour
+	}
+	if cfg.WaitUnit == 0 {
+		cfg.WaitUnit = time.Minute
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now

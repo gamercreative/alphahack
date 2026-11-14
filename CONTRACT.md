@@ -1,4 +1,4 @@
-# CONTRACT: Wassit (DRAFT, waiting for the owner's OK; frozen at W2, then change only through the lead)
+# CONTRACT: Wassit (frozen 2026-11-14 at W2; change only through the lead)
 
 ## Idea in one line
 A pharmacist-to-pharmacist medicine availability enquiry system that works fully by hand, plus
@@ -28,8 +28,8 @@ inside a guarded state machine (code decides what is allowed, the model decides 
   until `wait()` or `close_enquiry()` -> PATCH run with tokens, steps, status. Cost computed in Go.
 - `CORNILIA_MAX_STEPS=12`. Hitting it: run `failed`, nothing closed, enquiry stays open for a human.
 - Model `qwen3.5:35b-a3b` via Ollama, thinking off. Cornilia pinned at git tag `v0.1.0`.
-- Token usage: Cornilia v0.1.0 drops `response.usage` (providers.py returns the ChatCompletion,
-  models.py reads only `choices`). Decision pending (see "Open decisions").
+- Token usage: Cornilia v0.1.0 drops `response.usage`; agent/usage.py wraps the provider's
+  OneShotMessage to sum usage per run (owner chose option a; no Cornilia core edit).
 - Wake triggers: `created` (handled_by=agent), `clarified`, `approved`, `reply`, `timer` (next_wake_at passed).
 
 ## Data (migration 0004_enquiries; plus db/schema.dbml + internal/queries/models.go)
@@ -44,6 +44,7 @@ Ids are TEXT UUIDs like the template. Timestamps are timestamptz default now().
   quantity int CHECK > 0, status CHECK (open|awaiting_clarification|awaiting_approval|waiting|closed|cancelled),
   outcome CHECK (''|available|unavailable|unable_to_confirm|cancelled) default '', outcome_branch_id FK NULL,
   handled_by CHECK (manual|agent), clarification_question default '', clarification_answer default '',
+  wake_trigger default '' (set on created/clarified/approved/reply for agent enquiries, cleared when a run starts),
   next_wake_at NULL, created_at, updated_at, closed_at NULL
 - `enquiry_targets`: id, enquiry_id FK, branch_id FK, UNIQUE(enquiry_id, branch_id),
   status CHECK (proposed|approved|sent|available|unavailable|alternative_offered|no_response|cancelled),
@@ -89,9 +90,9 @@ Reused unchanged: `GET /api/v1/medications?q=`, `GET /api/v1/branches`, `GET /ap
 | GET /api/v1/enquiries?scope=outgoing\|incoming&status= | staff | list |
 | GET /api/v1/enquiries/{id} | staff, agent | enquiry + targets + messages + events + run summaries |
 | POST /api/v1/enquiries/{id}/medication | staff, agent | `{medication_id}` |
-| POST /api/v1/enquiries/{id}/clarification-request | agent | `{question}` -> awaiting_clarification |
+| POST /api/v1/enquiries/{id}/clarification-request | agent only | `{question}` -> awaiting_clarification |
 | POST /api/v1/enquiries/{id}/clarify | staff (requester) | `{answer}` -> open, wake `clarified` |
-| GET /api/v1/enquiries/{id}/candidates?limit=5&radius_km=5 | staff, agent | ranked in Go: participating, not requester, has unexpired unrecalled stock >= qty preferred, haversine km, stock `updated_at` freshness |
+| GET /api/v1/enquiries/{id}/candidates?limit=5&radius_km=15 | staff, agent | ranked in Go: participating, not requester, has unexpired unrecalled stock >= qty preferred, haversine km, stock `updated_at` freshness |
 | POST /api/v1/enquiries/{id}/targets | staff, agent | `{branch_ids}`; staff -> approved; agent -> proposed + awaiting_approval |
 | POST /api/v1/enquiries/{id}/targets/approve | staff (requester) | `{target_ids}` -> approved, wake `approved` |
 | POST /api/v1/enquiries/{id}/send | staff, agent | one queued outbox msg per approved target; targets -> sent; status waiting |
@@ -113,7 +114,7 @@ Reused unchanged: `GET /api/v1/medications?q=`, `GET /api/v1/branches`, `GET /ap
 
 Background (goroutine started in main.go, 2s ticker): outbox dispatcher marks queued -> sent when
 send_after passed, logs a `message_sent` system event. Env: `UNDO_WINDOW=60s`, `AGENT_TOKEN`,
-`AGENT_PRICE_IN_PER_MTOK`, `AGENT_PRICE_OUT_PER_MTOK` (USD per million tokens; cost_micros =
+`AGENT_PRICE_IN_PER_MTOK`, `AGENT_PRICE_OUT_PER_MTOK`, `WAIT_UNIT` (length of one wait() minute, default 1m, demo 2s) (USD per million tokens; cost_micros =
 tokens x price, in micro-dollars).
 
 ## Agent tools (agent/tools/, Cornilia @tool, results < 2k chars, errors that teach)
@@ -156,11 +157,12 @@ ask the requester; end every run with wait() or close_enquiry().
 
 ## Ownership map
 Lead (shared, frozen in W2): CONTRACT.md, db/migrations/0004*, 0005*, db/schema.dbml,
-internal/queries/models.go, internal/queries/querier.go, internal/services/contracts.go,
-internal/handlers/handlers.go, cmd/server/main.go, internal/config/config.go, openapi.yaml, .env.example.
+internal/queries/enquiry_models.go, internal/queries/querier.go, internal/services/contracts.go,
+internal/services/enquiry_common.go, internal/handlers/enquiry_common.go, internal/handlers/handlers.go,
+cmd/server/main.go, internal/config/*, .env.example. Delegated: openapi.yaml + scripts/smoke.sh (docs builder),
+internal/queries/enquiry.go + Wassit sql files (queries builder).
 
-Backend slices (each owns `internal/queries/sql/*_<slice>*.sql`, `internal/queries/<slice>.go`,
-`internal/services/<slice>.go` + `_test.go`, `internal/handlers/<slice>.go` + `_test.go`, its smoke lines):
+Backend slices (each owns `internal/services/enq_<slice>.go` and `internal/handlers/enq_<slice>.go`):
 `auth` | `enquiries` (create/get/list/medication/candidates/targets/close) | `replies` (inbox/reply/clarify/approve) |
 `outbox` (send/cancel/follow-up/no-response/dispatcher/undo) | `agentapi` (wakeups/runs/tool-calls/wait/notify/clarification-request) | `stats` (stats + SSE).
 
@@ -171,8 +173,6 @@ agent/prompts/system.md | agent/cases/ + scripts/run_cases.py. `web/` belongs to
 Customers, carts, orders, prescriptions, refills, contraindication/allergy fields; real SMS/WhatsApp
 delivery (the outbox "sent" state is the delivery); multi-enquiry concurrency in the runner.
 
-## Open decisions (owner)
-1. Token usage: (a, recommended) capture it inside agent/ by wrapping Cornilia's provider
-   (`OpenAIProvider.OneShotMessage` returns the ChatCompletion with `usage`), no Cornilia core edit;
-   or (b) add a general `usage_tracer` hook to Cornilia core, next to the existing `tool_tracer`.
-2. Guard: agentgw is not in backend/ yet, so v1 uses the AGENT_TOKEN header scheme behind `_http.py`.
+## Decisions
+1. Token usage: option (a), provider wrapper in agent/usage.py.
+2. Guard: AGENT_TOKEN header scheme behind agent/tools/_http.py until agentgw is mounted.

@@ -28,7 +28,11 @@ type actorKey struct{}
 // "Agent <AGENT_TOKEN>") via EnquiryService.Authenticate and enforces level.
 func (h *Handlers) auth(level access, fn http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		a, err := h.enq.Authenticate(r.Context(), r.Header.Get("Authorization"))
+		authz := r.Header.Get("Authorization")
+		if authz == "" && r.URL.Query().Get("access_token") != "" {
+			authz = "Bearer " + r.URL.Query().Get("access_token") // EventSource cannot set headers
+		}
+		a, err := h.enq.Authenticate(r.Context(), authz)
 		if err != nil {
 			h.fail(w, r, err)
 			return

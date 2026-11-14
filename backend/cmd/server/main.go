@@ -97,6 +97,7 @@ func run() error {
 		AgentToken:           cfg.AgentToken,
 		AgentPriceInPerMTok:  cfg.AgentPriceInPerMTok,
 		AgentPriceOutPerMTok: cfg.AgentPriceOutPerMTok,
+		WaitUnit:             cfg.WaitUnit,
 	})
 	// Outbox dispatcher: queued -> sent once send_after has passed.
 	go enquirySvc.RunDispatcher(ctx, 2*time.Second)

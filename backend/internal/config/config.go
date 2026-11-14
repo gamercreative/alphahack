@@ -46,6 +46,7 @@ type Config struct {
 	AgentToken           string        // AGENT_TOKEN, default "" (agent credential disabled when empty)
 	AgentPriceInPerMTok  float64       // AGENT_PRICE_IN_PER_MTOK, USD per million input tokens, default 0
 	AgentPriceOutPerMTok float64       // AGENT_PRICE_OUT_PER_MTOK, USD per million output tokens, default 0
+	WaitUnit             time.Duration // WAIT_UNIT, default "1m": length of one agent wait() minute (demo: "2s")
 }
 
 // Load builds the Config from the process environment and ./.env.

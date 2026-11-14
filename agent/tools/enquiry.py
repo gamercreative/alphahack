@@ -46,10 +46,13 @@ MAX_RESULT_CHARS = 1900  # the tool result must stay under 2000 characters of JS
 
 def _compact_enquiry(detail: dict) -> dict:
     messages = [m for m in detail.get("messages", []) or [] if isinstance(m, dict)]
+    targets_raw = detail.get("targets", []) or []
+    if isinstance(detail.get("enquiry"), dict):  # backend shape: {"enquiry": {...}, "targets": [...], ...}
+        detail = {**detail, **detail["enquiry"]}
     question = detail.get("clarification_question") or ""
     answer = detail.get("clarification_answer") or ""
     targets = []
-    for t in detail.get("targets", []) or []:
+    for t in targets_raw:
         if not isinstance(t, dict):
             continue
         target_id = str(t.get("id", ""))
@@ -135,7 +138,7 @@ def find_candidates(
     if error:
         return error
     candidates = []
-    for c in out.get("candidates", []) or []:
+    for c in out.get("data", out.get("candidates", [])) or []:
         if not isinstance(c, dict):
             continue
         reported = c.get("reported_quantity", c.get("available_quantity"))
@@ -160,7 +163,7 @@ def propose_targets(
     if error:
         return error
     proposed = []
-    for t in out.get("proposed", out.get("targets", [])) or []:
+    for t in out.get("data", out.get("proposed", out.get("targets", []))) or []:
         if not isinstance(t, dict):
             continue
         proposed.append({
@@ -183,7 +186,7 @@ def send_enquiries(enquiry_id: Annotated[str, "The enquiry id"]) -> dict:
         return error
     queued = out.get("queued")
     if not isinstance(queued, int):
-        queued = len(out.get("messages", []) or [])
+        queued = len(out.get("data", out.get("messages", [])) or [])
     return {"queued": queued, "note": "Messages leave after the undo window."}
 
 

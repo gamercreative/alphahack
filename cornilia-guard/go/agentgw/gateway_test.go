@@ -216,6 +216,52 @@ func TestWritesAreIdempotent(t *testing.T) {
 	}
 }
 
+func TestIdempotencyKeyReusedWithDifferentArgs(t *testing.T) {
+	g, _, writes := newGW(t)
+	tk := tok(t, []string{"x:write"}, 10, t0.Add(time.Minute))
+
+	t.Run("same key different args is rejected", func(t *testing.T) {
+		a := call(g, tk, "x.write", `{"n":1}`, reqOpt{idem: "book-ev2-abc"})
+		if a.Code != 200 {
+			t.Fatalf("first write: want 200, got %d %s", a.Code, a.Body)
+		}
+		b := call(g, tk, "x.write", `{"n":2}`, reqOpt{idem: "book-ev2-abc"})
+		if b.Code != 422 || code(b) != "idempotency_key_reused" {
+			t.Errorf("same key, different args: want 422 idempotency_key_reused, got %d %q %s",
+				b.Code, code(b), b.Body)
+		}
+		if *writes != 1 {
+			t.Errorf("writes: want 1 (new args must not apply), got %d", *writes)
+		}
+		if h := b.Header().Get("Idempotent-Replay"); h != "" {
+			t.Errorf("Idempotent-Replay: want empty on rejection, got %q", h)
+		}
+	})
+
+	t.Run("same key same args still replays", func(t *testing.T) {
+		c := call(g, tk, "x.write", `{"n":1}`, reqOpt{idem: "book-ev2-abc"})
+		if c.Code != 200 {
+			t.Fatalf("replay: want 200, got %d %s", c.Code, c.Body)
+		}
+		if h := c.Header().Get("Idempotent-Replay"); h != "true" {
+			t.Errorf("Idempotent-Replay: want true, got %q", h)
+		}
+		if *writes != 1 {
+			t.Errorf("writes: want 1 after replay, got %d", *writes)
+		}
+	})
+
+	t.Run("different key different args writes", func(t *testing.T) {
+		d := call(g, tk, "x.write", `{"n":2}`, reqOpt{idem: "book-ev2-xyz"})
+		if d.Code != 200 {
+			t.Fatalf("new key: want 200, got %d %s", d.Code, d.Body)
+		}
+		if *writes != 2 {
+			t.Errorf("writes: want 2, got %d", *writes)
+		}
+	})
+}
+
 func TestInternalErrorsDoNotLeak(t *testing.T) {
 	g, log, _ := newGW(t)
 	w := call(g, tok(t, []string{"x:read"}, 5, t0.Add(time.Minute)), "x.boom", `{"n":1}`, reqOpt{})

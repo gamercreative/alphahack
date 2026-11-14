@@ -67,7 +67,7 @@ class GatewayClient:
         req = urllib.request.Request(self.base_url + path, data=body, method="POST", headers=headers)
         try:
             with self._opener.open(req, timeout=self.timeout) as resp:
-                payload = json.loads(resp.read())
+                raw = resp.read()
         except urllib.error.HTTPError as e:
             try:
                 err = json.loads(e.read()).get("error") or {}
@@ -76,6 +76,12 @@ class GatewayClient:
             raise GatewayError(e.code, err.get("code", "http_error"), err.get("message", "request failed")) from None
         except (urllib.error.URLError, TimeoutError) as e:
             raise GatewayError(0, "unreachable", "backend unreachable") from e
+        try:
+            payload = json.loads(raw)
+        except ValueError:
+            raise GatewayError(200, "bad_response", "backend returned a body that is not JSON") from None
+        if not isinstance(payload, dict):
+            raise GatewayError(200, "bad_response", "backend returned an unexpected body")
         if not payload.get("ok"):
             raise GatewayError(200, "bad_response", "backend returned an error")
         return payload.get("data")

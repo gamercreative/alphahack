@@ -1,0 +1,1 @@
+UPDATE enquiry_agent_runs SET status=$2, input_tokens=$3, output_tokens=$4, steps=$5, cost_micros=$6, error=$7, finished_at=$8 WHERE id=$1 RETURNING id, enquiry_id, trigger, model, input_tokens, output_tokens, steps, cost_micros, status, error, started_at, finished_at

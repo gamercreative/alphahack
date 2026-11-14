@@ -59,7 +59,7 @@ Ids are TEXT UUIDs like the template. Timestamps are timestamptz default now().
 - `enquiry_agent_tool_calls`: id, seq bigserial, run_id FK, name, input jsonb, output, is_error bool, duration_ms int, created_at
 
 Seed (0005_enquiry_seed): lat/lng for every seeded branch (Beirut area), one staff per branch with demo
-PIN `1234`, emails `pharmacist@<branch-slug>.demo` (Pharmacy A/B/C/D logins for the demo).
+PIN `1234`, emails `a@wassit.demo` (Hamra, requester A), `b@` Achrafieh, `c@` Baabda, `d@` Verdun, `e@` Byblos.
 
 ### Event types (payload / inverse)
 `enquiry_created`, `medication_set` (inverse: previous medication_id), `clarification_requested`,
@@ -70,7 +70,7 @@ PIN `1234`, emails `pharmacist@<branch-slug>.demo` (Pharmacy A/B/C/D logins for 
 HITL count per enquiry = count of `clarified` + `targets_approved` events.
 
 ## Auth
-- Staff: `POST /api/v1/auth/login {email, pin}` -> 200 `{token, staff, branch}`. 30 random bytes, hex;
+- Staff: `POST /api/v1/auth/login {email, pin}` -> 200 `{token, staff, branch}`. 32 random bytes, hex;
   stored hashed; 12h expiry. `Authorization: Bearer <token>` on staff routes. Missing/bad -> 401 `unauthorized`.
 - Agent: `Authorization: Agent <AGENT_TOKEN>` (env, constant-time compare). Same header shape as
   cornilia-guard's agentgw so the guard can replace it later.

@@ -1,0 +1,1 @@
+SELECT id, CASE WHEN wake_trigger <> '' THEN wake_trigger ELSE 'timer' END FROM enquiries WHERE handled_by = 'agent' AND status NOT IN ('closed','cancelled') AND (wake_trigger <> '' OR next_wake_at <= now()) ORDER BY updated_at, id LIMIT $1

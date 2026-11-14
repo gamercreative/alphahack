@@ -59,6 +59,8 @@ func TestLoadDefaults(t *testing.T) {
 				RequestTimeout:  300 * time.Second,
 				CORSOrigins:     []string{"*"},
 				LogLevel:        "info",
+				UndoWindow:      60 * time.Second,
+				WaitUnit:        time.Minute,
 				OllamaBaseURL:   "http://localhost:11434",
 				OllamaModel:     "qwen3.5:35b-a3b",
 				OllamaThink:     "",

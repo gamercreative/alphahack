@@ -656,6 +656,637 @@ paths:
               schema: { $ref: "#/components/schemas/OrderDetail" }
         "404": { $ref: "#/components/responses/Error" }
 
+  # ---- Wassit (medicine availability enquiries). Who may call each route is in its description.
+  # Staff = Authorization: Bearer <token>. Agent = Authorization: Agent <AGENT_TOKEN>.
+  # Staff-only routes return 403 agent_forbidden to the agent credential. Agent-only routes
+  # return 403 forbidden to a staff token. UNDO_WINDOW (default 60s) is the time a queued
+  # outbox message can still be cancelled before the target sees it.
+
+  /api/v1/auth/login:
+    post:
+      summary: Staff login with email and PIN
+      description: "Who: public. Returns a staff token valid for 12 hours, sent as 'Authorization: Bearer <token>'. Wrong email or PIN returns 401 unauthorized."
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/me:
+    get:
+      summary: Current staff member and branch
+      description: "Who: staff only. An agent token gets 403 agent_forbidden. No token gets 401 unauthorized."
+      security: [{ StaffBearer: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  staff: { $ref: "#/components/schemas/Staff" }
+                  branch: { $ref: "#/components/schemas/Branch" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries:
+    get:
+      summary: List enquiries for my branch
+      description: "Who: staff only (agent token gets 403 agent_forbidden). scope=outgoing lists enquiries my branch raised; scope=incoming lists enquiries sent to my branch."
+      security: [{ StaffBearer: [] }]
+      parameters:
+        - name: scope
+          in: query
+          schema: { type: string, enum: [outgoing, incoming] }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, awaiting_clarification, awaiting_approval, waiting, closed, cancelled]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Enquiry" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create an enquiry
+      description: "Who: staff only (agent token gets 403 agent_forbidden). handled_by=manual is worked by pharmacists. handled_by=agent queues a wakeup with trigger created for Wassit."
+      security: [{ StaffBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateEnquiryInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Enquiry" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Enquiry detail with targets, messages, events and run summaries
+      description: "Who: staff or agent. Staff sees their own branch's enquiries; the agent sees all enquiries it works on."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnquiryDetail" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/medication:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Set or change the medication of an enquiry
+      description: "Who: staff or agent. The change is logged as medication_set with the previous medication_id as its inverse, so it can be undone."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MedicationInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Enquiry" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/clarification-request:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Agent asks the requester a clarifying question
+      description: "Who: agent only. A staff token gets 403 forbidden. Moves the enquiry to awaiting_clarification. Human clarification counts toward hitl_count."
+      security: [{ AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClarificationRequestInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Enquiry" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/clarify:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Requester answers the agent's question
+      description: "Who: staff, the requester only. An agent token gets 403 agent_forbidden. Moves the enquiry back to open and sets wake trigger clarified."
+      security: [{ StaffBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClarifyInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Enquiry" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/candidates:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Ranked candidate branches for an enquiry
+      description: "Who: staff or agent. Ranked in Go: participating branches other than the requester, with unexpired unrecalled stock at least the quantity preferred, then distance (haversine km) and stock freshness."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, default: 5 }
+        - name: radius_km
+          in: query
+          schema: { type: number, minimum: 0, default: 15 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Candidate" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/targets:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Propose or approve target branches
+      description: "Who: staff or agent. A staff call creates targets as approved. An agent call creates targets as proposed and moves the enquiry to awaiting_approval until the requester approves."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TargetsInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/EnquiryTarget" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/targets/approve:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Requester approves proposed targets
+      description: "Who: staff, the requester only. An agent token gets 403 agent_forbidden. Sets the targets to approved and sets wake trigger approved."
+      security: [{ StaffBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApproveTargetsInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/EnquiryTarget" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/send:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Queue the enquiry message to every approved target
+      description: "Who: staff or agent. One queued outbox message per approved target, with send_after = now + UNDO_WINDOW (default 60s). Targets become sent and the enquiry becomes waiting. Inside the window the message can be cancelled and the target never sees it."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Enquiry" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/messages/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Cancel a queued outbox message
+      description: "Who: staff or agent. Only allowed while the message is queued, which is inside UNDO_WINDOW. Otherwise 409 conflict."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OutboxMessage" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/targets/{id}/follow-up:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Send one follow-up to a target
+      description: "Who: staff or agent. At most one follow-up per target, and only when the target is sent. Otherwise 409 conflict."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnquiryTarget" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/targets/{id}/no-response:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Mark a target as no response
+      description: "Who: staff or agent. Only when the target is sent and follow_ups = 1, otherwise 409 conflict. No response is never recorded as unavailable."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnquiryTarget" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/inbox:
+    get:
+      summary: Enquiries waiting for my branch
+      description: "Who: staff only (agent token gets 403 agent_forbidden). Targets at my branch whose enquiry message has been sent."
+      security: [{ StaffBearer: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/InboxItem" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/targets/{id}/reply:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Target branch replies to an enquiry
+      description: "Who: staff at the target branch only. An agent token gets 403 agent_forbidden, so no agent can mark stock available. kind=alternative is shown to the requester as an option and never counts as a match. Sets wake trigger reply."
+      security: [{ StaffBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplyInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnquiryTarget" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/notify:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Queue a notification to the requester
+      description: "Who: staff or agent. Creates a notification outbox message to the requester branch."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotifyInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OutboxMessage" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/wait:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Agent schedules its next wake-up
+      description: "Who: agent only. A staff token gets 403 forbidden. Sets status waiting and next_wake_at. One minute of wait is WAIT_UNIT long (default 1m)."
+      security: [{ AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WaitInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Enquiry" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/close:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Close an enquiry with an outcome
+      description: "Who: staff or agent. The closing rules are enforced in Go. available needs at least one target available. unavailable needs every target replied unavailable. Otherwise use unable_to_confirm or cancelled. A rule violation returns 409 conflict with a message that says what to do next."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CloseInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Enquiry" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/events/{id}/undo:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Undo an event by running its stored inverse
+      description: "Who: staff or agent. Runs the inverse stored on the event and writes an event_undone row. An undo after send queues a retraction and cancels the target. Returns 409 conflict if the event is not reversible or was already undone."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnquiryEvent" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/stream:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Live enquiry events (server-sent events)
+      description: "Who: staff only (agent token gets 403 agent_forbidden). Streams one event named enquiry_event per new enquiry_events row; the data is an EnquiryEvent as JSON."
+      security: [{ StaffBearer: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/agent/wakeups:
+    get:
+      summary: Enquiries the agent should work on now
+      description: "Who: agent only. A staff token gets 403 forbidden. Returns agent-handled enquiries with a pending wake trigger, oldest first. The runner polls this every 3 seconds."
+      security: [{ AgentToken: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/AgentWakeup" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/agent/runs:
+    post:
+      summary: Start an agent run record
+      description: "Who: agent only. A staff token gets 403 forbidden. Creates a running run for one wake of one enquiry."
+      security: [{ AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentRunInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnquiryAgentRun" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/agent/runs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      summary: Finish an agent run
+      description: "Who: agent only. A staff token gets 403 forbidden. Stores status, tokens, steps and error. cost_micros is computed in Go from AGENT_PRICE_IN_PER_MTOK and AGENT_PRICE_OUT_PER_MTOK."
+      security: [{ AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateAgentRunInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnquiryAgentRun" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/agent/runs/{id}/tool-calls:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Record one tool call of an agent run
+      description: "Who: agent only. A staff token gets 403 forbidden. Appends to the run trace."
+      security: [{ AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ToolCallInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnquiryAgentToolCall" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/stats:
+    get:
+      summary: Per-enquiry outcome, human-in-the-loop count and agent cost
+      description: "Who: staff only (agent token gets 403 agent_forbidden). hitl_count counts clarified and targets_approved events that are not undone. cost_micros is in micro-dollars."
+      security: [{ StaffBearer: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/EnquiryStat" }
+                  totals: { type: object, description: "Totals across data; field names per the handler" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
 components:
   parameters:
     ID:
@@ -1067,3 +1698,371 @@ components:
         status:
           type: string
           enum: [active, paused, cancelled]
+
+    # ---- Wassit ----
+    LoginInput:
+      type: object
+      required: [email, pin]
+      properties:
+        email: { type: string, format: email }
+        pin: { type: string, example: "1234" }
+
+    LoginResult:
+      type: object
+      required: [token, staff, branch]
+      properties:
+        token:
+          type: string
+          description: "30 random bytes, hex. Stored hashed on the server. Valid for 12 hours."
+        staff: { $ref: "#/components/schemas/Staff" }
+        branch: { $ref: "#/components/schemas/Branch" }
+
+    Staff:
+      type: object
+      properties:
+        id: { type: string }
+        branch_id: { type: string }
+        full_name: { type: string }
+        email: { type: string, format: email }
+        role: { type: string, example: pharmacist }
+        created_at: { type: string, format: date-time }
+
+    Enquiry:
+      type: object
+      properties:
+        id: { type: string }
+        requester_branch_id: { type: string }
+        requester_staff_id: { type: string }
+        raw_request: { type: string }
+        medication_id: { type: string, nullable: true }
+        quantity: { type: integer, minimum: 1 }
+        status:
+          type: string
+          enum: [open, awaiting_clarification, awaiting_approval, waiting, closed, cancelled]
+        outcome:
+          type: string
+          enum: ["", available, unavailable, unable_to_confirm, cancelled]
+        outcome_branch_id: { type: string, nullable: true }
+        handled_by:
+          type: string
+          enum: [manual, agent]
+        clarification_question: { type: string }
+        clarification_answer: { type: string }
+        wake_trigger:
+          type: string
+          description: Set on created, clarified, approved or reply for agent enquiries; cleared when a run starts
+        next_wake_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        closed_at: { type: string, format: date-time, nullable: true }
+
+    EnquiryDetail:
+      allOf:
+        - $ref: "#/components/schemas/Enquiry"
+        - type: object
+          properties:
+            targets:
+              type: array
+              items: { $ref: "#/components/schemas/EnquiryTarget" }
+            messages:
+              type: array
+              items: { $ref: "#/components/schemas/OutboxMessage" }
+            events:
+              type: array
+              items: { $ref: "#/components/schemas/EnquiryEvent" }
+            runs:
+              type: array
+              description: Run summaries
+              items: { $ref: "#/components/schemas/EnquiryAgentRun" }
+
+    EnquiryTarget:
+      type: object
+      properties:
+        id: { type: string }
+        enquiry_id: { type: string }
+        branch_id: { type: string }
+        status:
+          type: string
+          enum: [proposed, approved, sent, available, unavailable, alternative_offered, no_response, cancelled]
+        reply_quantity: { type: integer, nullable: true }
+        reply_text: { type: string }
+        replied_by_staff_id: { type: string, nullable: true }
+        replied_at: { type: string, format: date-time, nullable: true }
+        follow_ups: { type: integer, minimum: 0, maximum: 1 }
+        created_at: { type: string, format: date-time }
+
+    OutboxMessage:
+      type: object
+      properties:
+        id: { type: string }
+        enquiry_id: { type: string }
+        target_id: { type: string, nullable: true }
+        kind:
+          type: string
+          enum: [enquiry, follow_up, retraction, notification]
+        body: { type: string }
+        status:
+          type: string
+          enum: [queued, sent, cancelled]
+        send_after: { type: string, format: date-time }
+        sent_at: { type: string, format: date-time, nullable: true }
+        created_by_actor:
+          type: string
+          description: "For example staff:<id>, agent or system"
+        created_at: { type: string, format: date-time }
+
+    EnquiryEvent:
+      type: object
+      properties:
+        id: { type: string }
+        seq: { type: integer, format: int64 }
+        enquiry_id: { type: string }
+        actor_type:
+          type: string
+          enum: [staff, agent, system]
+        actor_id: { type: string }
+        type:
+          type: string
+          enum:
+            - enquiry_created
+            - medication_set
+            - clarification_requested
+            - clarified
+            - targets_proposed
+            - targets_approved
+            - messages_queued
+            - message_cancelled
+            - message_sent
+            - follow_up_queued
+            - marked_no_response
+            - reply_received
+            - requester_notified
+            - wait_set
+            - enquiry_closed
+            - event_undone
+        payload: { type: object, additionalProperties: true }
+        inverse:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Stored inverse; null when the event is not reversible
+        undone_at: { type: string, format: date-time, nullable: true }
+        undone_by_event_id: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    EnquiryAgentRun:
+      type: object
+      properties:
+        id: { type: string }
+        enquiry_id: { type: string }
+        trigger:
+          type: string
+          enum: [created, clarified, approved, reply, timer]
+        model: { type: string }
+        input_tokens: { type: integer, minimum: 0 }
+        output_tokens: { type: integer, minimum: 0 }
+        steps: { type: integer, minimum: 0 }
+        cost_micros: { type: integer, format: int64, description: Micro-dollars }
+        status:
+          type: string
+          enum: [running, completed, failed]
+        error: { type: string }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time, nullable: true }
+
+    EnquiryAgentToolCall:
+      type: object
+      properties:
+        id: { type: string }
+        seq: { type: integer, format: int64 }
+        run_id: { type: string }
+        name: { type: string }
+        input: { type: object, additionalProperties: true }
+        output: { type: string }
+        is_error: { type: boolean }
+        duration_ms: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+
+    Candidate:
+      type: object
+      properties:
+        branch_id: { type: string }
+        name: { type: string }
+        city: { type: string }
+        lat: { type: number, nullable: true }
+        lng: { type: number, nullable: true }
+        available_quantity:
+          type: integer
+          description: Sum of quantity_on_hand minus quantity_reserved over unrecalled, unexpired batches; 0 if none
+        stock_updated_at: { type: string, format: date-time, nullable: true }
+
+    InboxItem:
+      type: object
+      properties:
+        target_id: { type: string }
+        target_status:
+          type: string
+          enum: [sent, available, unavailable, alternative_offered, no_response, cancelled, approved, proposed]
+        follow_ups: { type: integer, minimum: 0, maximum: 1 }
+        enquiry_id: { type: string }
+        requester_branch_id: { type: string }
+        requester_branch_name: { type: string }
+        medication_id: { type: string, nullable: true }
+        medication_name:
+          type: string
+          description: "Brand strength form, empty string if no medication is set"
+        raw_request: { type: string }
+        quantity: { type: integer, minimum: 1 }
+        sent_at: { type: string, format: date-time, nullable: true }
+
+    AgentWakeup:
+      type: object
+      properties:
+        enquiry_id: { type: string }
+        trigger:
+          type: string
+          enum: [created, clarified, approved, reply, timer]
+
+    EnquiryStat:
+      type: object
+      properties:
+        enquiry_id: { type: string }
+        raw_request: { type: string }
+        handled_by:
+          type: string
+          enum: [manual, agent]
+        status: { type: string }
+        outcome: { type: string }
+        hitl_count:
+          type: integer
+          minimum: 0
+          description: Count of clarified and targets_approved events that are not undone
+        agent_runs: { type: integer, minimum: 0 }
+        agent_steps: { type: integer, minimum: 0 }
+        input_tokens: { type: integer, minimum: 0 }
+        output_tokens: { type: integer, minimum: 0 }
+        cost_micros: { type: integer, format: int64, description: Micro-dollars }
+        created_at: { type: string, format: date-time }
+
+    CreateEnquiryInput:
+      type: object
+      required: [raw_request, quantity, handled_by]
+      properties:
+        raw_request: { type: string, minLength: 1 }
+        medication_id: { type: string, nullable: true }
+        quantity: { type: integer, minimum: 1 }
+        handled_by:
+          type: string
+          enum: [manual, agent]
+
+    MedicationInput:
+      type: object
+      required: [medication_id]
+      properties:
+        medication_id: { type: string }
+
+    ClarificationRequestInput:
+      type: object
+      required: [question]
+      properties:
+        question: { type: string, minLength: 1 }
+
+    ClarifyInput:
+      type: object
+      required: [answer]
+      properties:
+        answer: { type: string, minLength: 1 }
+
+    TargetsInput:
+      type: object
+      required: [branch_ids]
+      properties:
+        branch_ids:
+          type: array
+          minItems: 1
+          items: { type: string }
+
+    ApproveTargetsInput:
+      type: object
+      required: [target_ids]
+      properties:
+        target_ids:
+          type: array
+          minItems: 1
+          items: { type: string }
+
+    ReplyInput:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [available, unavailable, alternative]
+        quantity: { type: integer, minimum: 0 }
+        text: { type: string }
+
+    NotifyInput:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1 }
+
+    WaitInput:
+      type: object
+      required: [minutes]
+      properties:
+        minutes:
+          type: integer
+          enum: [5, 15, 30]
+
+    CloseInput:
+      type: object
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [available, unavailable, unable_to_confirm, cancelled]
+        branch_id: { type: string, nullable: true, description: Required for available, the branch that has the stock }
+
+    AgentRunInput:
+      type: object
+      required: [enquiry_id, trigger, model]
+      properties:
+        enquiry_id: { type: string }
+        trigger:
+          type: string
+          enum: [created, clarified, approved, reply, timer]
+        model: { type: string }
+
+    UpdateAgentRunInput:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [running, completed, failed]
+        input_tokens: { type: integer, minimum: 0 }
+        output_tokens: { type: integer, minimum: 0 }
+        steps: { type: integer, minimum: 0 }
+        error: { type: string }
+
+    ToolCallInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        input: { type: object, additionalProperties: true }
+        output: { type: string }
+        is_error: { type: boolean }
+        duration_ms: { type: integer, minimum: 0 }
+
+  securitySchemes:
+    StaffBearer:
+      type: http
+      scheme: bearer
+      description: "Staff token from POST /api/v1/auth/login, sent as 'Authorization: Bearer <token>'."
+    AgentToken:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: "Agent credential, sent as 'Authorization: Agent <AGENT_TOKEN>'. A staff-only route answers it with 403 agent_forbidden."

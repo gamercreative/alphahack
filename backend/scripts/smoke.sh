@@ -160,5 +160,62 @@ NADIA_ORDER_ID=$(id_after order)
 req GET /api/v1/customers/cust-nadia/orders 200
 req GET "/api/v1/orders/$NADIA_ORDER_ID" 200
 
+# Wassit: enquiries, replies, outbox and the agent credential.
+# Demo staff a/b/c/d@wassit.demo, PIN 1234. AGENT_TOKEN must match the server's AGENT_TOKEN.
+AGENT_TOKEN="${AGENT_TOKEN:-dev-agent-token}"
+
+# wreq AUTH METHOD PATH EXPECTED_STATUS [JSON_BODY] [EXPECTED_ERROR_CODE]
+# AUTH is the full Authorization header value ("Bearer <token>" or "Agent <token>"), "" for none.
+wreq() {
+  local auth="$1" method="$2" path="$3" want="$4" data="${5:-}" code="${6:-}"
+  local out status
+  local args=(-sS -m 600 -X "$method" "$BASE$path" -H 'Content-Type: application/json')
+  if [ -n "$auth" ]; then args+=(-H "Authorization: $auth"); fi
+  if [ -n "$data" ]; then args+=(-d "$data"); fi
+  out=$(curl "${args[@]}" -w $'\n%{http_code}')
+  status="${out##*$'\n'}"
+  BODY="${out%$'\n'*}"
+  local ok=1
+  [ "$status" = "$want" ] || ok=0
+  if [ -n "$code" ]; then
+    case "$BODY" in
+      *"\"error\":{\"code\":\"$code\""*"\"request_id\":\""*) ;;
+      *) ok=0 ;;
+    esac
+  fi
+  if [ "$ok" = 1 ]; then
+    PASS=$((PASS + 1))
+    printf 'PASS %-6s %-45s %s\n' "$method" "$path" "$status"
+  else
+    FAIL=$((FAIL + 1))
+    printf 'FAIL %-6s %-45s got %s want %s %s\n     %s\n' "$method" "$path" "$status" "$want" "$code" "$BODY"
+  fi
+}
+
+# json_field KEY: the top-level field KEY of $BODY (empty if missing or not JSON).
+json_field() { printf '%s' "$BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1], ""))' "$1" 2>/dev/null; }
+
+echo "== Wassit"
+
+req POST /api/v1/auth/login 200 '{"email":"a@wassit.demo","pin":"1234"}'
+TOKEN_A=$(json_field token)
+req POST /api/v1/auth/login 200 '{"email":"b@wassit.demo","pin":"1234"}'
+TOKEN_B=$(json_field token)
+
+wreq "Bearer $TOKEN_A" GET /api/v1/me 200
+wreq "Bearer $TOKEN_A" POST /api/v1/enquiries 201 '{"raw_request":"smoke: panadol","medication_id":"med-panadol-advance","quantity":1,"handled_by":"manual"}'
+ENQ_ID=$(json_field id)
+wreq "Bearer $TOKEN_A" GET "/api/v1/enquiries/$ENQ_ID" 200
+wreq "Bearer $TOKEN_A" GET "/api/v1/enquiries/$ENQ_ID/candidates" 200
+wreq "Bearer $TOKEN_A" POST "/api/v1/enquiries/$ENQ_ID/targets" 201 '{"branch_ids":["branch-achrafieh"]}'
+wreq "Bearer $TOKEN_A" POST "/api/v1/enquiries/$ENQ_ID/send" 200
+wreq "Bearer $TOKEN_B" GET /api/v1/inbox 200
+wreq "Bearer $TOKEN_A" POST "/api/v1/enquiries/$ENQ_ID/close" 200 '{"outcome":"unable_to_confirm"}'
+wreq "Bearer $TOKEN_A" GET /api/v1/stats 200
+
+# Agent credential on a staff-only route, and no credential at all.
+wreq "Agent $AGENT_TOKEN" POST "/api/v1/enquiries/$ENQ_ID/clarify" 403 '{"answer":"smoke"}' agent_forbidden
+wreq "" GET /api/v1/me 401 '' unauthorized
+
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

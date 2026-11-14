@@ -40,6 +40,7 @@ def _env_float(name, default):
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8080").rstrip("/")
 AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "dev-agent-token")
 UNDO_WAIT = _env_float("UNDO_WAIT", 5)
+NO_RESPONSE_WAIT = float(os.environ.get("NO_RESPONSE_WAIT", "11"))  # 5 x WAIT_UNIT (2s) + margin
 HTTP_TIMEOUT = 15
 
 # Demo seed (see CONTRACT.md "Seed"): one staff per branch, PIN 1234.
@@ -400,6 +401,7 @@ def check2_agent_api_flow():
                {"body": "Baabda offers 625mg only (not a match)"}), 200)
     expect(n, "agent follows up D once -> 200",
            req("POST", f"/api/v1/targets/{td}/follow-up", "agent"), 200)
+    time.sleep(UNDO_WAIT + NO_RESPONSE_WAIT)  # follow-up delivered + one full wait
     expect(n, "agent marks D no_response -> 200",
            req("POST", f"/api/v1/targets/{td}/no-response", "agent"), 200)
     assert_statuses(n, "no target is available (B unavailable, C alternative_offered, D no_response)",
@@ -464,6 +466,7 @@ def check4_closing_rules():
            req("POST", f"/api/v1/targets/{tb}/reply", "B", {"kind": "unavailable"}), 200)
     expect(n, "A follows up C once -> 200",
            req("POST", f"/api/v1/targets/{tc}/follow-up", "A"), 200)
+    time.sleep(UNDO_WAIT + NO_RESPONSE_WAIT)  # follow-up delivered + one full wait
     expect(n, "A marks C no_response -> 200",
            req("POST", f"/api/v1/targets/{tc}/no-response", "A"), 200)
     expect(n, "A closes unavailable while C is no_response -> 409 conflict",

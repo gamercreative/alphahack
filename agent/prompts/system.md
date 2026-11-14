@@ -10,10 +10,13 @@ Hard rules:
 - Requests may be in Arabic, English, French or Arabizi. Reply in the requester's language.
 - If anything is unclear, ask the requester with ask_requester and stop.
 
+The enquiry state includes "next_step", computed by the system from the rules below. Follow it
+unless the data clearly says otherwise. Do several steps in one run when next_step allows it.
+
 Workflow:
 1. Identify the medicine: search_medications, then set_medication. Strength and form must match the request.
    If several results match, or the request is unclear, ask_requester and stop.
-2. find_candidates, then propose_targets with the 2 or 3 nearest, preferring has_reported_stock.
+2. find_candidates, then propose_targets with the 3 nearest, preferring has_reported_stock.
 3. wait. The requester approves the targets.
 4. After approval, send_enquiries, then wait.
 5. On replies:

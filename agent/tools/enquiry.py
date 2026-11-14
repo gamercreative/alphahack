@@ -44,6 +44,44 @@ def _latest_enquiry_message_status(messages: list, target_id: str) -> str | None
 MAX_RESULT_CHARS = 1900  # the tool result must stay under 2000 characters of JSON
 
 
+def _next_step(out: dict, messages: list) -> str:
+    """Computes the next allowed step from the state (code decides what is allowed; the model decides)."""
+    status = out.get("status")
+    targets = [t for t in out.get("targets", []) if t.get("status") != "cancelled"]
+    if status in ("closed", "cancelled"):
+        return "Nothing to do: the enquiry is closed."
+    if status == "awaiting_clarification":
+        return "Waiting for the requester's answer: call wait(5)."
+    if not out.get("medication"):
+        return "Identify the medicine: search_medications, then set_medication if exactly one strength/form matches; otherwise ask_requester."
+    if not targets:
+        return "find_candidates, then propose_targets with the 3 best candidates, then wait(5)."
+    avail = [t for t in targets if t["status"] == "available"]
+    if avail:
+        return f"A pharmacy replied available: close_enquiry outcome 'available' with branch_id of {avail[0]['pharmacy']} (branch_id {avail[0].get('branch_id')})."
+    if any(t["status"] == "approved" for t in targets):
+        return "The requester approved targets: call send_enquiries now, then wait(5)."
+    if any(t["status"] == "proposed" for t in targets):
+        return "Waiting for the requester to approve the proposed pharmacies: call wait(5)."
+    notified = " ".join(m.get("body", "") for m in messages if m.get("kind") == "notification")
+    alt = [t for t in targets if t["status"] == "alternative_offered" and (t.get("pharmacy") or "") not in notified]
+    if alt:
+        return f"{alt[0]['pharmacy']} offered an alternative ({alt[0].get('reply_text')}). It is NOT a match: notify_requester naming {alt[0]['pharmacy']}, then continue."
+    pending = [t for t in targets if t["status"] == "sent"]
+    if pending:
+        undelivered = [t for t in pending if t.get("message") != "sent"]
+        if undelivered:
+            return "Messages are still in the undo window: call wait(5)."
+        no_fu = [t for t in pending if t.get("follow_ups", 0) == 0]
+        if no_fu:
+            return "Still silent: follow_up " + ", ".join(t["target_id"] for t in no_fu) + " (once each), then wait(5)."
+        return ("Followed up already. If you have not waited since the follow-up, call wait(5) now. If this run was woken by "
+                "the timer after that wait, mark_no_response " + ", ".join(t["target_id"] for t in pending) + ".")
+    if all(t["status"] == "unavailable" for t in targets):
+        return "Every pharmacy replied unavailable: close_enquiry outcome 'unavailable'."
+    return "All pharmacies answered or are no_response and none is available: close_enquiry outcome 'unable_to_confirm'."
+
+
 def _compact_enquiry(detail: dict) -> dict:
     messages = [m for m in detail.get("messages", []) or [] if isinstance(m, dict)]
     targets_raw = detail.get("targets", []) or []
@@ -58,6 +96,7 @@ def _compact_enquiry(detail: dict) -> dict:
         target_id = str(t.get("id", ""))
         targets.append({
             "target_id": target_id,
+            "branch_id": t.get("branch_id"),
             "pharmacy": t.get("branch_name"),
             "status": t.get("status"),
             "reply_quantity": t.get("reply_quantity"),
@@ -76,6 +115,7 @@ def _compact_enquiry(detail: dict) -> dict:
         "notified_requester": sum(1 for m in messages if m.get("kind") == "notification"),
         "outcome": detail.get("outcome") or "",
     }
+    out["next_step"] = _next_step(out, messages)
     # hard guard: drop trailing targets (and say so) until the result fits the size budget
     omitted = 0
     while len(json.dumps(out)) > MAX_RESULT_CHARS and out["targets"]:

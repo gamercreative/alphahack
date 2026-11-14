@@ -232,6 +232,20 @@ func (s *EnquiryService) MarkNoResponse(ctx context.Context, a Actor, targetID s
 		if t.Status != queries.TargetSent || t.FollowUps < 1 {
 			return Conflict("send one follow_up first and wait; no reply is never 'unavailable'")
 		}
+		// The follow-up must have been delivered and left unanswered for one full wait (5 wait units).
+		msgs, err := q.ListOutboxMessages(ctx, e.ID)
+		if err != nil {
+			return FromStore(err, "message")
+		}
+		var fuSentAt *time.Time
+		for _, m := range msgs {
+			if m.Kind == queries.OutboxKindFollowUp && m.TargetID != nil && *m.TargetID == t.ID && m.Status == queries.OutboxSent {
+				fuSentAt = m.SentAt
+			}
+		}
+		if fuSentAt == nil || s.now().Sub(*fuSentAt) < 5*s.cfg.WaitUnit {
+			return Conflict("the follow-up was sent too recently: wait(5) for a reply before marking no_response")
+		}
 		prev := t.Status
 		t.Status = queries.TargetNoResponse
 		out, err = q.UpdateEnquiryTarget(ctx, targetToUpdate(t))

@@ -1,10 +1,14 @@
-"""Wassit runner: polls the backend for wakeups and runs one Cornilia loop per enquiry.
+"""Wassit runner: polls the backend for wakeups and runs one loop per enquiry.
 
 Usage:
-  python runner.py          loop forever, poll every 3s
-  python runner.py --once   process the current wakeups, then exit
+  python runner.py                       loop forever, poll every 3s, model policy
+  python runner.py --once                process the current wakeups, then exit
+  python runner.py --policy scripted     no model: the deterministic policy in scripted.py
+
+The policy comes from --policy, else env WASSIT_POLICY, else model.
 """
 
+import argparse
 import json
 import os
 import sys
@@ -20,6 +24,8 @@ POLL_SECONDS = 3
 DEFAULT_MODEL = "qwen3.5:35b-a3b"
 DEFAULT_MAX_STEPS = 12
 MAX_STEPS_MESSAGE = "max steps reached; left open for a human"
+POLICIES = ("model", "scripted")
+_policy_override: str | None = None  # set from --policy in main()
 
 # Cornilia reads CORNILIA_TOOLS_DIR when it is imported, so set the default first
 os.environ.setdefault("CORNILIA_TOOLS_DIR", str(TOOLS_DIR))
@@ -27,6 +33,7 @@ os.environ.setdefault("CORNILIA_TOOLS_DIR", str(TOOLS_DIR))
 sys.path.append(str(AGENT_DIR))  # usage.py
 sys.path.append(str(TOOLS_DIR))  # enquiry.py and _http.py
 
+import scripted  # noqa: E402
 import usage  # noqa: E402
 from cornilia import settings  # noqa: E402
 from cornilia.context_managers import CacheModelContextManager  # noqa: E402
@@ -56,6 +63,12 @@ def http_call(method: str, path: str, body: dict | None = None) -> dict:
 
 def fetch_wakeups() -> list[dict]:
     return http_call("GET", "/api/v1/agent/wakeups").get("data", [])
+
+
+def current_policy() -> str:
+    """--policy wins, then env WASSIT_POLICY, then model."""
+    choice = _policy_override or os.environ.get("WASSIT_POLICY", "").strip().lower() or "model"
+    return choice if choice in POLICIES else "model"
 
 
 def model_name_from_env() -> str:
@@ -124,7 +137,7 @@ def make_tracer(run_id: str):
             args = {}
         if not isinstance(args, dict):
             args = {"value": args}
-        text = str(result)
+        text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
         is_error = '"error"' in text
         duration_ms = int(seconds * 1000)
         try:
@@ -147,12 +160,13 @@ def make_tracer(run_id: str):
     return tracer
 
 
-def finish_run(run_id: str, status: str, error: str, meter) -> None:
+def finish_run(run_id: str, status: str, error: str, input_tokens: int = 0,
+               output_tokens: int = 0, steps: int = 0) -> None:
     body = {
         "status": status,
-        "input_tokens": meter.input_tokens if meter else 0,
-        "output_tokens": meter.output_tokens if meter else 0,
-        "steps": meter.calls if meter else 0,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "steps": steps,
         "error": error,
     }
     try:
@@ -161,10 +175,36 @@ def finish_run(run_id: str, status: str, error: str, meter) -> None:
         print(f"[run {run_id}] could not finish run: {e}")
 
 
+def run_scripted(run_id: str, enquiry_id: str) -> tuple[str, str, int]:
+    """The deterministic policy: no model, tokens 0, steps = tool calls. Returns (status, error, steps)."""
+    status, error = "completed", ""
+    steps = 0
+    tracer = make_tracer(run_id)
+
+    def call(name: str, **kwargs) -> dict:
+        nonlocal steps
+        steps += 1
+        started = time.perf_counter()
+        try:
+            result = scripted.run_tool(name, **kwargs)
+        except Exception as e:
+            result = {"error": str(e)[:300]}
+        tracer(name, kwargs, result, time.perf_counter() - started)
+        return result
+
+    try:
+        state = http_call("GET", f"/api/v1/enquiries/{enquiry_id}")
+        scripted.decide(state, call)
+    except Exception as e:
+        status, error = "failed", str(e)[:500]
+    return status, error, steps
+
+
 def process_wake(wake: dict) -> str:
-    """Run one Cornilia loop for one wakeup. Returns the run status."""
+    """Run one loop for one wakeup, with the model or the scripted policy. Returns the run status."""
     enquiry_id = str(wake.get("enquiry_id", ""))
     trigger = str(wake.get("trigger", ""))
+    policy = current_policy()
     model_name = model_name_from_env()
 
     run = http_call(
@@ -173,7 +213,13 @@ def process_wake(wake: dict) -> str:
         {"enquiry_id": enquiry_id, "trigger": trigger, "model": model_name},
     )
     run_id = str(run["id"])
-    print(f"[run {run_id}] enquiry {enquiry_id} trigger {trigger}")
+    print(f"[run {run_id}] enquiry {enquiry_id} trigger {trigger} policy {policy}")
+
+    if policy == "scripted":
+        status, error, steps = run_scripted(run_id, enquiry_id)
+        finish_run(run_id, status, error, steps=steps)
+        print(f"[run {run_id}] {status}")
+        return status
 
     status, error = "completed", ""
     meter = None
@@ -189,7 +235,14 @@ def process_wake(wake: dict) -> str:
     except Exception as e:
         status, error = "failed", str(e)[:500]
     finally:
-        finish_run(run_id, status, error, meter)
+        finish_run(
+            run_id,
+            status,
+            error,
+            input_tokens=meter.input_tokens if meter else 0,
+            output_tokens=meter.output_tokens if meter else 0,
+            steps=meter.calls if meter else 0,
+        )
 
     print(f"[run {run_id}] {status}")
     return status
@@ -204,7 +257,18 @@ def process_wakeups() -> None:
 
 
 def main(argv: list[str]) -> int:
-    if "--once" in argv:
+    global _policy_override
+    parser = argparse.ArgumentParser(description="Wassit runner")
+    parser.add_argument("--once", action="store_true", help="process the current wakeups, then exit")
+    parser.add_argument("--policy", choices=POLICIES, default=None, help="model (default) or scripted")
+    args = parser.parse_args(argv)
+    env_policy = os.environ.get("WASSIT_POLICY", "").strip().lower()
+    if env_policy and env_policy not in POLICIES:
+        print(f"WASSIT_POLICY must be one of {', '.join(POLICIES)}, got {env_policy!r}")
+        return 2
+    _policy_override = args.policy
+
+    if args.once:
         try:
             process_wakeups()
         except Exception as e:
@@ -212,7 +276,7 @@ def main(argv: list[str]) -> int:
             return 1
         return 0
 
-    print(f"runner polling every {POLL_SECONDS}s")
+    print(f"runner polling every {POLL_SECONDS}s, policy {current_policy()}")
     while True:
         try:
             process_wakeups()

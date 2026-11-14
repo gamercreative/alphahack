@@ -7,9 +7,9 @@ enquiry, scripted pharmacists reply (or stay silent), and the agent runs until t
 
 | Run | Date (UTC) | Model / policy | Matches | HITL | Steps | Tokens | Wall time | Cost |
 |---|---|---|---|---|---|---|---|---|
-| [qwen](agent/cases/results_qwen.md) | 2026-11-14 22:06 | `qwen3.5:35b-a3b` on LAN Ollama 192.168.1.108 | **16/20** | 22 | 193 | 529k | 26.2 min | $0 (own GPU) |
-| [haiku](agent/cases/results_haiku.md) | 2026-11-14 12:20 | `claude-haiku-5-5` (Anthropic) | 15/20 | 22 | 248 | ~1.1M | 14.6 min | $0.108 |
-| [scripted](agent/cases/results_scripted.md) | 2026-11-14 12:00 | no model (`--policy scripted`) | 14/20 | 44 | 318 | 0 | 12.1 min | $0 |
+| [qwen](../agent/cases/results_qwen.md) | 2026-11-14 22:06 | `qwen3.5:35b-a3b` on LAN Ollama 192.168.1.108 | **16/20** | 22 | 193 | 529k | 26.2 min | $0 (own GPU) |
+| [haiku](../agent/cases/results_haiku.md) | 2026-11-14 12:20 | `claude-haiku-5-5` (Anthropic) | 15/20 | 22 | 248 | ~1.1M | 14.6 min | $0.108 |
+| [scripted](../agent/cases/results_scripted.md) | 2026-11-14 12:00 | no model (`--policy scripted`) | 14/20 | 44 | 318 | 0 | 12.1 min | $0 |
 
 Steps are model calls (or tool calls for the scripted policy). The Haiku token count also includes
 two demo enquiries made during the same run window. Haiku cost uses $0.10 in / $0.50 out per million tokens.

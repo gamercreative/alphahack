@@ -457,13 +457,13 @@ func (s *PharmacyService) buildCartDetail(ctx context.Context, cart queries.Cart
 	}, nil
 }
 
-func parseNormalizedTags(raw json.RawMessage) []string {
+func parseNormalizedTags(raw json.RawMessage) ([]string, error) {
 	if len(raw) == 0 {
-		return nil
+		return nil, nil
 	}
 	var tags []string
 	if err := json.Unmarshal(raw, &tags); err != nil {
-		return nil
+		return nil, err
 	}
 	out := make([]string, 0, len(tags))
 	for _, t := range tags {
@@ -472,18 +472,29 @@ func parseNormalizedTags(raw json.RawMessage) []string {
 			out = append(out, norm)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func checkMedicationSafetyGates(customer queries.Customer, medication queries.Medication) error {
 	if medication.Controlled {
 		return Conflict("controlled_substance: requires in-person pharmacist dispensing")
 	}
-	medTags := parseNormalizedTags(medication.ContraindicationTags)
+	medTags, err := parseNormalizedTags(medication.ContraindicationTags)
+	if err != nil {
+		return Conflict("safety_data_unreadable: medication contraindication tags are not a list of strings")
+	}
 	if len(medTags) == 0 {
 		return nil
 	}
-	custTags := append(parseNormalizedTags(customer.Allergies), parseNormalizedTags(customer.ChronicConditions)...)
+	allergyTags, err := parseNormalizedTags(customer.Allergies)
+	if err != nil {
+		return Conflict("safety_data_unreadable: customer allergy or condition tags are not a list of strings")
+	}
+	conditionTags, err := parseNormalizedTags(customer.ChronicConditions)
+	if err != nil {
+		return Conflict("safety_data_unreadable: customer allergy or condition tags are not a list of strings")
+	}
+	custTags := append(allergyTags, conditionTags...)
 	custSet := make(map[string]bool, len(custTags))
 	for _, t := range custTags {
 		custSet[t] = true

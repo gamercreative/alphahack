@@ -91,7 +91,7 @@ micros = t.get("cost_micros", 0) or 0
 print("stats totals:")
 for key in ("enquiries", "agent_enquiries", "hitl_count", "agent_runs", "agent_steps"):
     print(f"  {key:<17} {t.get(key, 0)}")
-print(f"  {'cost_usd':<17} {micros / 1_000_000:.6f}")
+print("  " + "cost_usd".ljust(17) + f" {micros / 1_000_000:.6f}")
 '
 
 if [ "$failed" -ne 0 ]; then

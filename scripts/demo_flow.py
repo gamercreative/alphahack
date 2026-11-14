@@ -1,7 +1,7 @@
 #!/usr/bin/env python3.13
 """Wassit live demo driver: narrated, step by step, against a LIVE backend. Stdlib only.
 
-Run after the backend is up and seeded (see DEMO.md):
+Run after the backend is up and seeded (see docs/DEMO.md):
 
     python3.13 scripts/demo_flow.py                  # pause for Enter between steps
     python3.13 scripts/demo_flow.py --no-pause       # run straight through
@@ -384,7 +384,7 @@ def main(argv=None):
         args.no_pause, args.drive_agent, args.policy, args.timeout)
 
     if DRIVE_AGENT and not AGENT_PY.exists():
-        print(f"error: agent venv not found at {AGENT_PY} (see DEMO.md, prerequisites)", file=sys.stderr)
+        print(f"error: agent venv not found at {AGENT_PY} (see docs/DEMO.md, prerequisites)", file=sys.stderr)
         return 1
 
     try:

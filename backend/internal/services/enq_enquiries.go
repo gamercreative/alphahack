@@ -607,6 +607,15 @@ func (s *EnquiryService) CloseEnquiry(ctx context.Context, a Actor, id, outcome 
 			}
 			u.Status = queries.EnquiryClosed
 		case queries.OutcomeUnableToConfirm:
+			// The agent may not give up on a pharmacy that is still pending: it must follow up and
+			// mark no_response first (a human pharmacist may close early).
+			if a.IsAgent() {
+				for _, t := range considered {
+					if t.Status == queries.TargetSent || t.Status == queries.TargetApproved || t.Status == queries.TargetProposed {
+						return Conflict("cannot close yet: a contacted pharmacy has not answered. Wait, follow_up once, then mark_no_response before closing as unable_to_confirm")
+					}
+				}
+			}
 			u.Status = queries.EnquiryClosed
 		case queries.OutcomeCancelled:
 			if a.IsAgent() {

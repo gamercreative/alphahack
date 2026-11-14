@@ -15,7 +15,7 @@ review, and verify. The actual code is written by cheap subagents:
 - scout (Haiku): read-only searching
 - builder (Haiku): one small change per call
 - tester (Haiku): tests only
-Follow WORKFLOW.md (W1-W6, spec template, report format) and PLAN.md (build order). Stack facts
+Follow docs/WORKFLOW.md (W1-W6, spec template, report format) and docs/PLAN.md (build order). Stack facts
 are in AGENTS.md. Your first output file is CONTRACT.md, written from the "Contract draft" below.
 
 ## Goal
@@ -61,7 +61,7 @@ API user with its own credential, never a side door.
 - Go backend: /Users/akramseifeddine/Documents/alphahack/backend/ (project copy of Backend_Template; never edit Backend_Template itself)
 - Agent: /Users/akramseifeddine/Documents/alphahack/agent/ (configs.py, tools/*.py, prompts/system.md, runner.py; Cornilia installed pinned v0.1.0)
 - Cornilia core: /Users/akramseifeddine/Documents/alphahack/Cornilia/ (reference only; no event code in src/)
-- Security layer: /Users/akramseifeddine/Documents/alphahack/cornilia-guard/ and LEAD_PROMPT_cornilia_guard.md.
+- Security layer: /Users/akramseifeddine/Documents/alphahack/cornilia-guard/ and docs/lead-prompts/LEAD_PROMPT_cornilia_guard.md.
   If backend/ already has agentgw, agent tools go through it. If not, use the AGENT_TOKEN header
   scheme below and keep the tool HTTP calls in one helper (agent/tools/_http.py) so the guard can
   replace it later without touching the tools.
@@ -191,7 +191,7 @@ W2: freeze shared files (one builder, sequential). make check and make check-que
 W3: fan out per the ownership map, all in one message, in the background. Tool builders mock HTTP.
 W4: you run make check, make check-queries, make docker-up, make smoke, pytest in agent/, then the
     acceptance checks in order. Route failures back to the owning agent by message.
-W5: seed_demo.sh, DEMO.md with the exact demo order (manual flow, then agent flow with live replies
+W5: seed_demo.sh, docs/DEMO.md with the exact demo order (manual flow, then agent flow with live replies
     from the Pharmacy B and C logins, then undo, then the stats table), and an AI_PROVIDER=fake /
     recorded fallback.
 
@@ -208,7 +208,7 @@ The manual flow must be green before any agent work merges.
 
 ## Reporting
 After each slice, give me 3-5 lines: what changed, tests passing, anything that needs my decision.
-Commit after each green slice with a clear message. Ask before pushing. Add one line to PLAN.md's
+Commit after each green slice with a clear message. Ask before pushing. Add one line to docs/PLAN.md's
 progress log per step.
 Stop and ask me before: deleting anything, editing Backend_Template/ or Cornilia/src/, changing the
 existing pharmacy endpoints, adding a dependency, or touching the guard's security invariants.

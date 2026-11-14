@@ -58,8 +58,10 @@ name with spaces and parentheses.
    subfolders by purpose. A README is added. `CONTRACT.md` stays at the root because backend
    code comments and the acceptance scripts cite it by that name.
 
-**Cost.** Seven file renames and a handful of path edits in docs, CLAUDE.md and one
-script's help and error text. No shims were needed, because nothing imports a doc.
+**Cost.** Eleven file renames (all detected by git at 98 to 100 percent similarity) and
+path edits in CLAUDE.md, docs/WORKFLOW.md, the two lead prompts, and one docstring line and
+one error message in `scripts/demo_flow.py`. No shims were needed, because nothing imports
+a doc.
 
 **Rule for new files.**
 - Agent code -> `agent/` (a tool -> `agent/tools/<area>.py`, a test -> `agent/tests/`).

@@ -12,6 +12,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"alphahack/internal/queries"
@@ -45,6 +46,7 @@ type EnquiryConfig struct {
 	SessionTTL           time.Duration // default 12h
 	WaitUnit             time.Duration // one wait() "minute"; default 1m (demo can shrink it)
 	Now                  func() time.Time
+	Logger               *slog.Logger // background errors (outbox dispatcher); nil = slog.Default()
 }
 
 type EnquiryService struct {
@@ -61,6 +63,9 @@ func NewEnquiryService(store queries.Querier, cfg EnquiryConfig) *EnquiryService
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.Default()
 	}
 	return &EnquiryService{store: store, cfg: cfg}
 }

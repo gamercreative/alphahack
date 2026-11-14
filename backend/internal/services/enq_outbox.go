@@ -404,8 +404,8 @@ func (s *EnquiryService) DispatchDue(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-// RunDispatcher calls DispatchDue every `every` until ctx is done. Errors are ignored
-// here; the next tick retries.
+// RunDispatcher calls DispatchDue every `every` until ctx is done. Errors are logged
+// and the next tick retries.
 func (s *EnquiryService) RunDispatcher(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -414,7 +414,9 @@ func (s *EnquiryService) RunDispatcher(ctx context.Context, every time.Duration)
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			_, _ = s.DispatchDue(ctx)
+			if _, err := s.DispatchDue(ctx); err != nil && ctx.Err() == nil {
+				s.cfg.Logger.Error("outbox dispatch failed", "error", err)
+			}
 		}
 	}
 }

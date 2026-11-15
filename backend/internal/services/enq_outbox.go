@@ -35,6 +35,9 @@ func (s *EnquiryService) Send(ctx context.Context, a Actor, id string) ([]querie
 		if isFinal(e) {
 			return Conflict("this enquiry is closed")
 		}
+		if e.Status == queries.EnquiryAwaitingClarification || (e.ClarificationQuestion != "" && e.ClarificationAnswer == "") {
+			return Conflict("cannot send while a clarification question is awaiting the requester's answer")
+		}
 		targets, err := q.ListEnquiryTargets(ctx, e.ID)
 		if err != nil {
 			return FromStore(err, "target")
@@ -114,7 +117,7 @@ func (s *EnquiryService) CancelMessage(ctx context.Context, a Actor, messageID s
 		if err != nil {
 			return FromStore(err, "message")
 		}
-		if m.Status != queries.OutboxQueued {
+		if m.Status != queries.OutboxQueued || !s.now().Before(m.SendAfter) {
 			return Conflict("message already sent; undo the messages_queued event to send a retraction instead")
 		}
 		out, err = q.UpdateOutboxMessageStatus(ctx, m.ID, queries.OutboxCancelled, nil)
@@ -124,6 +127,17 @@ func (s *EnquiryService) CancelMessage(ctx context.Context, a Actor, messageID s
 		if m.TargetID != nil && m.Kind == queries.OutboxKindEnquiry {
 			if _, err := s.saveTargetStatus(ctx, q, *m.TargetID, queries.TargetCancelled); err != nil {
 				return err
+			}
+		} else if m.TargetID != nil && m.Kind == queries.OutboxKindFollowUp {
+			t, err := q.GetEnquiryTarget(ctx, *m.TargetID)
+			if err != nil {
+				return FromStore(err, "target")
+			}
+			if t.FollowUps > 0 {
+				t.FollowUps--
+				if _, err := q.UpdateEnquiryTarget(ctx, targetToUpdate(t)); err != nil {
+					return FromStore(err, "target")
+				}
 			}
 		}
 		_, err = s.logEvent(ctx, q, e.ID, a, EvMessageCancelled, map[string]any{
@@ -345,6 +359,13 @@ func (s *EnquiryService) Undo(ctx context.Context, a Actor, eventID string) (que
 			}
 			e.Status = queries.EnquiryOpen
 		case "set_target_status":
+			t, err := q.GetEnquiryTarget(ctx, inv.TargetID)
+			if err != nil {
+				return FromStore(err, "target")
+			}
+			if t.Status != queries.TargetNoResponse {
+				return Conflict("cannot undo: target status has changed since marked_no_response")
+			}
 			if _, err := s.saveTargetStatus(ctx, q, inv.TargetID, inv.Status); err != nil {
 				return err
 			}
@@ -353,6 +374,10 @@ func (s *EnquiryService) Undo(ctx context.Context, a Actor, eventID string) (que
 			e.Outcome = queries.OutcomeNone
 			e.OutcomeBranchID = nil
 			e.ClosedAt = nil
+			if e.HandledBy == "agent" && e.WakeTrigger == "" && e.NextWakeAt == nil &&
+				e.Status != queries.EnquiryAwaitingClarification && e.Status != queries.EnquiryAwaitingApproval {
+				e.WakeTrigger = WakeCreated
+			}
 		default:
 			return Conflict("unknown undo operation")
 		}
@@ -386,11 +411,28 @@ func (s *EnquiryService) DispatchDue(ctx context.Context) (int, error) {
 		}
 		now := s.now()
 		for _, m := range due {
-			if _, err := q.UpdateOutboxMessageStatus(ctx, m.ID, queries.OutboxSent, &now); err != nil {
+			e, err := q.GetEnquiryForUpdate(ctx, m.EnquiryID)
+			if err != nil {
+				return FromStore(err, "enquiry")
+			}
+			cur, err := q.GetOutboxMessage(ctx, m.ID)
+			if err != nil {
 				return FromStore(err, "message")
 			}
-			if _, err := s.logEvent(ctx, q, m.EnquiryID, SystemActor, EvMessageSent, map[string]any{
-				"message_id": m.ID, "kind": m.Kind, "target_id": m.TargetID,
+			if cur.Status != queries.OutboxQueued {
+				continue
+			}
+			if isFinal(e) {
+				if _, err := q.UpdateOutboxMessageStatus(ctx, cur.ID, queries.OutboxCancelled, nil); err != nil {
+					return FromStore(err, "message")
+				}
+				continue
+			}
+			if _, err := q.UpdateOutboxMessageStatus(ctx, cur.ID, queries.OutboxSent, &now); err != nil {
+				return FromStore(err, "message")
+			}
+			if _, err := s.logEvent(ctx, q, cur.EnquiryID, SystemActor, EvMessageSent, map[string]any{
+				"message_id": cur.ID, "kind": cur.Kind, "target_id": cur.TargetID,
 			}, nil); err != nil {
 				return err
 			}
@@ -495,28 +537,45 @@ func (s *EnquiryService) undoDeleteTargets(ctx context.Context, q queries.Querie
 // their targets go back to approved. Messages already sent get a retraction, and their
 // targets are cancelled.
 func (s *EnquiryService) undoCancelMessages(ctx context.Context, q queries.Querier, a Actor, e queries.Enquiry, messageIDs []string) error {
+	now := s.now()
 	for _, id := range messageIDs {
 		m, err := q.GetOutboxMessage(ctx, id)
 		if err != nil {
 			return FromStore(err, "message")
 		}
+		if m.TargetID != nil {
+			t, err := q.GetEnquiryTarget(ctx, *m.TargetID)
+			if err != nil {
+				return FromStore(err, "target")
+			}
+			if t.Status == queries.TargetAvailable || t.Status == queries.TargetUnavailable || t.Status == queries.TargetAlternativeOffered {
+				return Conflict("cannot undo send: a contacted pharmacy has already replied")
+			}
+		}
 		switch m.Status {
 		case queries.OutboxCancelled:
 			continue
 		case queries.OutboxQueued:
-			if _, err := q.UpdateOutboxMessageStatus(ctx, m.ID, queries.OutboxCancelled, nil); err != nil {
+			if now.Before(m.SendAfter) {
+				if _, err := q.UpdateOutboxMessageStatus(ctx, m.ID, queries.OutboxCancelled, nil); err != nil {
+					return FromStore(err, "message")
+				}
+				if m.TargetID != nil {
+					if _, err := s.saveTargetStatus(ctx, q, *m.TargetID, queries.TargetApproved); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			if _, err := q.UpdateOutboxMessageStatus(ctx, m.ID, queries.OutboxSent, &now); err != nil {
 				return FromStore(err, "message")
 			}
-			if m.TargetID != nil {
-				if _, err := s.saveTargetStatus(ctx, q, *m.TargetID, queries.TargetApproved); err != nil {
-					return err
-				}
-			}
+			fallthrough
 		case queries.OutboxSent:
 			if _, err := q.CreateOutboxMessage(ctx, queries.CreateOutboxMessageParams{
 				EnquiryID: e.ID, TargetID: m.TargetID, Kind: queries.OutboxKindRetraction,
 				Body:      "Please disregard our earlier availability enquiry: it has been withdrawn.",
-				SendAfter: s.now(), CreatedByActor: a.Label(),
+				SendAfter: now, CreatedByActor: a.Label(),
 			}); err != nil {
 				return FromStore(err, "message")
 			}

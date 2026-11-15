@@ -42,19 +42,24 @@ func (s *EnquiryService) Inbox(ctx context.Context, a Actor, page Page) ([]queri
 func (s *EnquiryService) Reply(ctx context.Context, a Actor, targetID string, in ReplyInput) (queries.EnquiryTarget, error) {
 	var out queries.EnquiryTarget
 	err := s.store.InTx(ctx, func(q queries.Querier) error {
-		t, err := q.GetEnquiryTarget(ctx, targetID)
+		t0, err := q.GetEnquiryTarget(ctx, targetID)
 		if err != nil {
 			return FromStore(err, "target")
 		}
-		if t.BranchID != a.BranchID {
+		if t0.BranchID != a.BranchID {
 			return Forbidden("only pharmacists at the contacted pharmacy can reply")
 		}
-		e, err := q.GetEnquiryForUpdate(ctx, t.EnquiryID)
+		e, err := q.GetEnquiryForUpdate(ctx, t0.EnquiryID)
 		if err != nil {
 			return FromStore(err, "enquiry")
 		}
 		if isFinal(e) {
 			return errEnquiryClosed()
+		}
+		// Re-read the target under the enquiry lock so concurrent replies serialize.
+		t, err := q.GetEnquiryTarget(ctx, targetID)
+		if err != nil {
+			return FromStore(err, "target")
 		}
 		msgs, err := q.ListOutboxMessages(ctx, e.ID)
 		if err != nil {
@@ -79,8 +84,11 @@ func (s *EnquiryService) Reply(ctx context.Context, a Actor, targetID string, in
 		default:
 			return Invalid("kind must be available, unavailable or alternative")
 		}
-		if in.Quantity != nil && *in.Quantity < 0 {
-			return Invalid("quantity must be 0 or more")
+		if in.Quantity != nil && (*in.Quantity < 0 || *in.Quantity > maxEnquiryQuantity) {
+			return Invalid("quantity must be between 0 and %d", maxEnquiryQuantity)
+		}
+		if in.Kind == "available" && (in.Quantity == nil || *in.Quantity <= 0) {
+			return Invalid("quantity must be at least 1 when replying available")
 		}
 		text := strings.TrimSpace(in.Text)
 		if utf8.RuneCountInString(text) > maxReplyTextChars {
@@ -183,7 +191,7 @@ func (s *EnquiryService) Clarify(ctx context.Context, a Actor, id, answer string
 		if isFinal(e) {
 			return errEnquiryClosed()
 		}
-		if e.Status != queries.EnquiryAwaitingClarification {
+		if e.Status != queries.EnquiryAwaitingClarification && !(e.ClarificationQuestion != "" && e.ClarificationAnswer == "") {
 			return Conflict("no clarification is pending")
 		}
 		answer = strings.TrimSpace(answer)
@@ -192,7 +200,9 @@ func (s *EnquiryService) Clarify(ctx context.Context, a Actor, id, answer string
 		}
 
 		u := toUpdate(e)
-		u.Status = queries.EnquiryOpen
+		if e.Status == queries.EnquiryAwaitingClarification {
+			u.Status = queries.EnquiryOpen
+		}
 		u.ClarificationAnswer = answer
 		wakeAgent(e, &u, WakeClarified)
 		updated, err := q.UpdateEnquiry(ctx, u)

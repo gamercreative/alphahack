@@ -93,8 +93,8 @@ def test_one_gram_equals_1000mg_but_not_625():
     "augmentin 1g",
     "augmentin 1000mg",
     "augmentin 625mg",
-    pytest.param('ventolin 100mcg', marks=pytest.mark.xfail(strict=True, raises=KnownBugFailure, reason='BUG-09: scripted._strengths does not convert mcg to mg (100mcg is read as 100mg), catalogue._strengths_mg does')),
-    pytest.param('x 0.5g', marks=pytest.mark.xfail(strict=True, raises=KnownBugFailure, reason="BUG-09: scripted's quantity pattern eats 'x 0' of 'x 0.5g', so 0.5g is read as 5g")),
+    "ventolin 100mcg",
+    "x 0.5g",
 ])
 def test_scripted_and_catalogue_agree(text):
     assert_known_bug({float(v) for v in scripted._strengths(text)} == catalogue._strengths_mg(text))
@@ -105,7 +105,7 @@ def test_scripted_and_catalogue_agree(text):
 @pytest.mark.parametrize("text", [
     "augmentin 1g x2",
     "augmentin 1g 2 boxes",
-    pytest.param('badde augmentin 1g 2 3elab', marks=pytest.mark.xfail(strict=True, raises=KnownBugFailure, reason='BUG-09: scripted._strengths counts the bare quantity numbers of the demo phrase (2, 3) as strengths')),
+    "badde augmentin 1g 2 3elab",
 ])
 def test_scripted_ignores_quantity_words(text):
     assert_known_bug(scripted._strengths(text) == scripted._strengths("augmentin 1g"))

@@ -163,7 +163,7 @@ def make_tracer(run_id: str):
         if not isinstance(args, dict):
             args = {"value": args}
         text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
-        is_error = '"error"' in text
+        is_error = '"error"' in text or text.startswith("System_Error")
         duration_ms = int(seconds * 1000)
         try:
             http_call(

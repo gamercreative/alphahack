@@ -40,9 +40,6 @@ def loser_code(live, results):
     return [live.code(body) for status, body in results if status != 200 and status != 201]
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-15: two simultaneous replies to one target are both accepted (the status "
-                          "check runs before the enquiry lock); two reply_received events, last write wins")
 def test_race_two_replies_to_one_target_only_one_wins(live):
     enquiry_id, targets = live.sent_enquiry(("b", "c", "d", "e"))
     for letter in ("b", "c", "d", "e"):

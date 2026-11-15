@@ -67,7 +67,7 @@ func (s *EnquiryService) EventsSince(ctx context.Context, a Actor, enquiryID str
 		}
 		isTarget := false
 		for _, t := range targets {
-			if t.BranchID == a.BranchID {
+			if t.BranchID == a.BranchID && t.Status != queries.TargetCancelled {
 				isTarget = true
 				break
 			}

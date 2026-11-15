@@ -42,6 +42,45 @@ def _latest_enquiry_message_status(messages: list, target_id: str) -> str | None
 
 
 MAX_RESULT_CHARS = 1900  # the tool result must stay under 2000 characters of JSON
+RARE_STOCK_THRESHOLD = 3
+IMPORTER_RETURN_CAP = 4
+
+
+def _compute_candidate_flags(reported_qty: int | None, requested_qty: int = 1) -> list[str]:
+    """Computes deterministic B2B inventory shield & trade mode flags for a candidate branch."""
+    qty = int(reported_qty or 0)
+    req = max(1, int(requested_qty or 1))
+    flags: list[str] = []
+    if qty <= RARE_STOCK_THRESHOLD or qty < req:
+        flags.append("RARE_PROTECT")
+    if 0 < qty <= RARE_STOCK_THRESHOLD:
+        flags.append("EXCHANGE_ONLY")
+    if qty > IMPORTER_RETURN_CAP:
+        flags.append("NEAR_EXPIRY_PUSH")
+    return flags
+
+
+def _compute_enquiry_policy_flags(detail: dict, targets: list[dict]) -> list[str]:
+    """Computes deterministic B2B policy flags for the enquiry state (< 2000 chars budget)."""
+    req_qty = max(1, int(detail.get("quantity") or 1))
+    med = detail.get("medication") if isinstance(detail.get("medication"), dict) else {}
+    flags: list[str] = []
+    if med.get("chronic_eligible") or any(
+        w in str(detail.get("raw_request") or "").lower()
+        for w in ("concor", "glucophage", "lipitor", "ventolin", "chronic", "refill")
+    ):
+        flags.append("CHRONIC_BUFFER")
+    avail_Common = [
+        int(t.get("reply_quantity") or 0)
+        for t in targets
+        if t.get("status") == "available" and t.get("reply_quantity") is not None
+    ]
+    if any(0 < q <= RARE_STOCK_THRESHOLD for q in avail_Common) or req_qty >= IMPORTER_RETURN_CAP:
+        flags.append("RARE_PROTECT")
+        flags.append("EXCHANGE_ONLY")
+    if any(q > IMPORTER_RETURN_CAP for q in avail_Common):
+        flags.append("NEAR_EXPIRY_PUSH")
+    return flags
 
 
 def _next_step(out: dict, messages: list) -> str:
@@ -114,6 +153,7 @@ def _compact_enquiry(detail: dict) -> dict:
         "targets": targets,
         "notified_requester": sum(1 for m in messages if m.get("kind") == "notification"),
         "outcome": detail.get("outcome") or "",
+        "policy_flags": _compute_enquiry_policy_flags(detail, targets),
     }
     out["next_step"] = _next_step(out, messages)
     # hard guard: drop trailing targets (and say so) until the result fits the size budget
@@ -178,18 +218,26 @@ def find_candidates(
     if error:
         return error
     candidates = []
+    policy_summary = {}
     for c in out.get("data", out.get("candidates", [])) or []:
         if not isinstance(c, dict):
             continue
         reported = c.get("reported_quantity", c.get("available_quantity"))
+        bid = c.get("branch_id")
         candidates.append({
-            "branch_id": c.get("branch_id"),
-            "name": c.get("name"),
+            "branch_id": _cut(bid),
+            "name": _cut(c.get("name")),
             "distance_km": c.get("distance_km"),
             "has_reported_stock": bool(c.get("has_reported_stock", reported)),
             "reported_quantity": reported,
         })
-    return {"candidates": candidates}
+        if bid:
+            policy_summary[_cut(bid)] = _compute_candidate_flags(reported)
+    res = {"candidates": candidates, "policy_flags_by_branch": policy_summary}
+    while len(res["candidates"]) > 1 and len(json.dumps(res)) > MAX_RESULT_CHARS:
+        removed = res["candidates"].pop()
+        res["policy_flags_by_branch"].pop(removed["branch_id"], None)
+    return res
 
 
 @tool

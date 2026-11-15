@@ -101,7 +101,7 @@ func run() error {
 		Logger:               logger,
 	})
 	// Outbox dispatcher: queued -> sent once send_after has passed.
-	go enquirySvc.RunDispatcher(ctx, 2*time.Second)
+	go enquirySvc.RunDispatcher(ctx, 250*time.Millisecond)
 	h := handlers.New(handlers.Deps{
 		Agents:        services.NewAgentService(store),
 		Conversations: services.NewConversationService(store),

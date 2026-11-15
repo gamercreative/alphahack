@@ -7,6 +7,13 @@ import (
 	"alphahack/internal/services"
 )
 
+func (h *Handlers) staffPharmacy(fn http.HandlerFunc) http.HandlerFunc {
+	if h.enq == nil {
+		return fn
+	}
+	return h.auth(staffOnly, fn)
+}
+
 // registerPharmacy mounts the pharmacy B2C routes.
 func (h *Handlers) registerPharmacy(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/branches", h.listBranches)
@@ -14,21 +21,21 @@ func (h *Handlers) registerPharmacy(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/branches/{id}/inventory", h.listBranchInventory)
 	mux.HandleFunc("GET /api/v1/medications", h.searchMedications)
 	mux.HandleFunc("GET /api/v1/medications/{id}", h.getMedicationDetail)
-	mux.HandleFunc("GET /api/v1/customers", h.listCustomers)
-	mux.HandleFunc("GET /api/v1/customers/{id}", h.getCustomer)
-	mux.HandleFunc("PATCH /api/v1/customers/{id}", h.updateCustomer)
-	mux.HandleFunc("GET /api/v1/customers/{id}/prescriptions", h.listCustomerPrescriptions)
-	mux.HandleFunc("POST /api/v1/customers/{id}/prescriptions", h.createPrescription)
-	mux.HandleFunc("GET /api/v1/customers/{id}/refills", h.listCustomerRefills)
-	mux.HandleFunc("POST /api/v1/customers/{id}/refills", h.createRefill)
-	mux.HandleFunc("PATCH /api/v1/refills/{id}", h.updateRefillStatus)
-	mux.HandleFunc("POST /api/v1/carts", h.createCart)
-	mux.HandleFunc("GET /api/v1/carts/{id}", h.getCartDetail)
-	mux.HandleFunc("POST /api/v1/carts/{id}/items", h.addCartItem)
-	mux.HandleFunc("DELETE /api/v1/carts/{id}/items/{medication_id}", h.removeCartItem)
-	mux.HandleFunc("POST /api/v1/carts/{id}/checkout", h.checkoutCart)
-	mux.HandleFunc("GET /api/v1/customers/{id}/orders", h.listCustomerOrders)
-	mux.HandleFunc("GET /api/v1/orders/{id}", h.getOrderDetail)
+	mux.HandleFunc("GET /api/v1/customers", h.staffPharmacy(h.listCustomers))
+	mux.HandleFunc("GET /api/v1/customers/{id}", h.staffPharmacy(h.getCustomer))
+	mux.HandleFunc("PATCH /api/v1/customers/{id}", h.staffPharmacy(h.updateCustomer))
+	mux.HandleFunc("GET /api/v1/customers/{id}/prescriptions", h.staffPharmacy(h.listCustomerPrescriptions))
+	mux.HandleFunc("POST /api/v1/customers/{id}/prescriptions", h.staffPharmacy(h.createPrescription))
+	mux.HandleFunc("GET /api/v1/customers/{id}/refills", h.staffPharmacy(h.listCustomerRefills))
+	mux.HandleFunc("POST /api/v1/customers/{id}/refills", h.staffPharmacy(h.createRefill))
+	mux.HandleFunc("PATCH /api/v1/refills/{id}", h.staffPharmacy(h.updateRefillStatus))
+	mux.HandleFunc("POST /api/v1/carts", h.staffPharmacy(h.createCart))
+	mux.HandleFunc("GET /api/v1/carts/{id}", h.staffPharmacy(h.getCartDetail))
+	mux.HandleFunc("POST /api/v1/carts/{id}/items", h.staffPharmacy(h.addCartItem))
+	mux.HandleFunc("DELETE /api/v1/carts/{id}/items/{medication_id}", h.staffPharmacy(h.removeCartItem))
+	mux.HandleFunc("POST /api/v1/carts/{id}/checkout", h.staffPharmacy(h.checkoutCart))
+	mux.HandleFunc("GET /api/v1/customers/{id}/orders", h.staffPharmacy(h.listCustomerOrders))
+	mux.HandleFunc("GET /api/v1/orders/{id}", h.staffPharmacy(h.getOrderDetail))
 }
 
 func (h *Handlers) listBranches(w http.ResponseWriter, r *http.Request) {

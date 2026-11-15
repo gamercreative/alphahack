@@ -96,6 +96,8 @@ func FromStore(err error, resource string) error {
 		return NotFound(resource)
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return err
+	case strings.Contains(err.Error(), "invalid byte sequence"):
+		return Invalid("invalid characters in input")
 	default:
 		return Internal(err)
 	}
@@ -128,8 +130,8 @@ func (p Page) Normalize() Page {
 	return p
 }
 
-// clean trims whitespace; shared by validators.
-func clean(s string) string { return strings.TrimSpace(s) }
+// clean trims whitespace and strips null bytes; shared by validators.
+func clean(s string) string { return strings.TrimSpace(strings.ReplaceAll(s, "\x00", "")) }
 
 // ---- health ----------------------------------------------------------------
 

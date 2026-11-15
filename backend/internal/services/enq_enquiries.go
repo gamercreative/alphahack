@@ -164,7 +164,7 @@ func (s *EnquiryService) GetEnquiryDetail(ctx context.Context, a Actor, id strin
 			if allowed {
 				break
 			}
-			allowed = t.BranchID == a.BranchID
+			allowed = t.BranchID == a.BranchID && t.Status != queries.TargetCancelled
 		}
 	}
 	if !allowed {
@@ -476,11 +476,20 @@ func (s *EnquiryService) AddTargets(ctx context.Context, a Actor, id string, bra
 		if isFinal(e) {
 			return Conflict("this enquiry is closed")
 		}
+		if a.IsAgent() && e.Status == queries.EnquiryAwaitingClarification {
+			return Conflict("cannot propose targets while waiting for the requester to clarify")
+		}
 		existing, err := q.ListEnquiryTargets(ctx, e.ID)
 		if err != nil {
 			return FromStore(err, "target")
 		}
 		taken := activeTargetBranches(existing)
+		cancelledByBranch := make(map[string]queries.EnquiryTarget)
+		for _, t := range existing {
+			if t.Status == queries.TargetCancelled {
+				cancelledByBranch[t.BranchID] = t
+			}
+		}
 
 		status := queries.TargetApproved
 		if a.IsAgent() {
@@ -499,11 +508,20 @@ func (s *EnquiryService) AddTargets(ctx context.Context, a Actor, id string, bra
 			if taken[bid] {
 				return Conflict(fmt.Sprintf("pharmacy %s is already a target", b.Name))
 			}
-			t, err := q.CreateEnquiryTarget(ctx, queries.CreateEnquiryTargetParams{
-				EnquiryID: e.ID,
-				BranchID:  bid,
-				Status:    status,
-			})
+			var t queries.EnquiryTarget
+			if prev, ok := cancelledByBranch[bid]; ok {
+				t, err = q.UpdateEnquiryTarget(ctx, queries.UpdateEnquiryTargetParams{
+					ID:        prev.ID,
+					Status:    status,
+					FollowUps: 0,
+				})
+			} else {
+				t, err = q.CreateEnquiryTarget(ctx, queries.CreateEnquiryTargetParams{
+					EnquiryID: e.ID,
+					BranchID:  bid,
+					Status:    status,
+				})
+			}
 			if err != nil {
 				return FromStore(err, "target")
 			}
@@ -630,6 +648,24 @@ func (s *EnquiryService) CloseEnquiry(ctx context.Context, a Actor, id, outcome 
 		u.ClosedAt = timePtr(now)
 		u.WakeTrigger = ""
 		u.NextWakeAt = nil
+
+		msgs, err := q.ListOutboxMessages(ctx, e.ID)
+		if err != nil {
+			return FromStore(err, "outbox")
+		}
+		for _, m := range msgs {
+			if m.Status != queries.OutboxQueued {
+				continue
+			}
+			if _, err := q.UpdateOutboxMessageStatus(ctx, m.ID, queries.OutboxCancelled, nil); err != nil {
+				return FromStore(err, "message")
+			}
+			if outcome == queries.OutcomeCancelled && m.TargetID != nil && m.Kind == queries.OutboxKindEnquiry {
+				if _, err := s.saveTargetStatus(ctx, q, *m.TargetID, queries.TargetCancelled); err != nil {
+					return err
+				}
+			}
+		}
 
 		updated, err := q.UpdateEnquiry(ctx, u)
 		if err != nil {

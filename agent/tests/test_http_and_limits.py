@@ -116,8 +116,6 @@ def test_call_reads_backend_url_from_env(monkeypatch):
     assert seen["req"].full_url == "http://example.test:9/api/v1/medications"
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason='BUG-10: _http.call lets a read timeout escape as an exception instead of returning an error dict (CONTRACT: errors teach)')
 def test_call_read_timeout_returns_error_dict(monkeypatch):
     raising_urlopen(monkeypatch, TimeoutError("timed out"))
     try:
@@ -127,8 +125,6 @@ def test_call_read_timeout_returns_error_dict(monkeypatch):
     assert_known_bug(isinstance(out, dict) and "error" in out)
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason='BUG-10: _http.call lets a connection reset escape as an exception instead of returning an error dict')
 def test_call_connection_reset_returns_error_dict(monkeypatch):
     raising_urlopen(monkeypatch, ConnectionResetError("connection reset by peer"))
     try:
@@ -159,8 +155,6 @@ def test_call_http_409_envelope_is_returned_as_is(monkeypatch):
 
 # ---------- Part B: tool result size under 2,000 characters ----------
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason='BUG-12: search_medications does not cap its result (CONTRACT: tool results < 2k chars)')
 def test_search_medications_result_under_2k(fake):
     long = "x" * 300
     rows = [{"id": f"{long}{i}", "brand_name": long, "active_ingredient": long,
@@ -171,8 +165,6 @@ def test_search_medications_result_under_2k(fake):
     assert_known_bug(size < LIMIT, f"search_medications result is {size} characters")
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason='BUG-12: find_candidates does not cap its result (CONTRACT: tool results < 2k chars)')
 def test_find_candidates_result_under_2k(fake):
     long = "n" * 300
     rows = [{"branch_id": f"B{i}", "name": f"{long}{i}", "distance_km": 1.5,
@@ -223,8 +215,6 @@ def test_get_enquiry_with_ten_targets_under_2k(fake):
     assert size < LIMIT, f"get_enquiry (ten targets) result is {size} characters"
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason='BUG-12: a long backend error message is returned uncut by the tools (CONTRACT: tool results < 2k chars)')
 def test_tool_error_message_under_2k(fake):
     fake({"error": {"code": "conflict", "message": "m" * 5000}})
     out = enquiry.close_enquiry("E1", "unable_to_confirm")

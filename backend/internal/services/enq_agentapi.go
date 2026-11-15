@@ -31,16 +31,29 @@ func (s *EnquiryService) Wakeups(ctx context.Context) ([]queries.AgentWakeup, er
 
 // StartRun clears the wake of an agent enquiry and opens a run record for it.
 func (s *EnquiryService) StartRun(ctx context.Context, enquiryID, trigger, model string) (queries.EnquiryAgentRun, error) {
-	e, err := s.store.GetEnquiry(ctx, enquiryID)
-	if err != nil {
-		return queries.EnquiryAgentRun{}, FromStore(err, "enquiry")
+	trigger = clean(trigger)
+	model = clean(model)
+	switch trigger {
+	case WakeCreated, WakeClarified, WakeApproved, WakeReply, "timer":
+	default:
+		return queries.EnquiryAgentRun{}, Invalid("trigger must be created, clarified, approved, reply or timer")
 	}
-	if e.HandledBy != "agent" {
-		return queries.EnquiryAgentRun{}, Forbidden("this enquiry is handled manually")
+	if model == "" {
+		return queries.EnquiryAgentRun{}, Invalid("model is required")
 	}
 
 	var run queries.EnquiryAgentRun
-	err = s.store.InTx(ctx, func(q queries.Querier) error {
+	err := s.store.InTx(ctx, func(q queries.Querier) error {
+		e, err := q.GetEnquiryForUpdate(ctx, enquiryID)
+		if err != nil {
+			return FromStore(err, "enquiry")
+		}
+		if e.HandledBy != "agent" {
+			return Forbidden("this enquiry is handled manually")
+		}
+		if isFinal(e) {
+			return Conflict("this enquiry is closed")
+		}
 		if err := q.ClearEnquiryWake(ctx, enquiryID); err != nil {
 			return FromStore(err, "enquiry")
 		}
@@ -79,23 +92,46 @@ func (s *EnquiryService) FinishRun(ctx context.Context, runID string, in FinishR
 	if in.Status != "completed" && in.Status != "failed" {
 		return queries.EnquiryAgentRun{}, Invalid("status must be completed or failed")
 	}
-	if in.InputTokens < 0 || in.OutputTokens < 0 || in.Steps < 0 {
-		return queries.EnquiryAgentRun{}, Invalid("input_tokens, output_tokens and steps must be >= 0")
+	if in.InputTokens < 0 || in.OutputTokens < 0 || in.Steps < 0 ||
+		in.InputTokens > math.MaxInt32 || in.OutputTokens > math.MaxInt32 || in.Steps > math.MaxInt32 {
+		return queries.EnquiryAgentRun{}, Invalid("input_tokens, output_tokens and steps must be between 0 and %d", math.MaxInt32)
 	}
 	finishedAt := s.now()
-	run, err := s.store.FinishEnquiryAgentRun(ctx, queries.FinishEnquiryAgentRunParams{
-		ID:           runID,
-		Status:       in.Status,
-		InputTokens:  in.InputTokens,
-		OutputTokens: in.OutputTokens,
-		Steps:        in.Steps,
-		CostMicros: costMicros(in.InputTokens, in.OutputTokens,
-			s.cfg.AgentPriceInPerMTok, s.cfg.AgentPriceOutPerMTok),
-		Error:      in.Error,
-		FinishedAt: &finishedAt,
+	var run queries.EnquiryAgentRun
+	err := s.store.InTx(ctx, func(q queries.Querier) error {
+		existing, err := q.GetEnquiryAgentRun(ctx, runID)
+		if err != nil {
+			return FromStore(err, "run")
+		}
+		if _, err := q.GetEnquiryForUpdate(ctx, existing.EnquiryID); err != nil {
+			return FromStore(err, "enquiry")
+		}
+		existing, err = q.GetEnquiryAgentRun(ctx, runID)
+		if err != nil {
+			return FromStore(err, "run")
+		}
+		if existing.Status != queries.RunStatusRunning {
+			return Conflict("this agent run is already finished")
+		}
+		r, err := q.FinishEnquiryAgentRun(ctx, queries.FinishEnquiryAgentRunParams{
+			ID:           runID,
+			Status:       in.Status,
+			InputTokens:  in.InputTokens,
+			OutputTokens: in.OutputTokens,
+			Steps:        in.Steps,
+			CostMicros: costMicros(in.InputTokens, in.OutputTokens,
+				s.cfg.AgentPriceInPerMTok, s.cfg.AgentPriceOutPerMTok),
+			Error:      in.Error,
+			FinishedAt: &finishedAt,
+		})
+		if err != nil {
+			return FromStore(err, "run")
+		}
+		run = r
+		return nil
 	})
 	if err != nil {
-		return queries.EnquiryAgentRun{}, FromStore(err, "run")
+		return queries.EnquiryAgentRun{}, err
 	}
 	return run, nil
 }
@@ -112,8 +148,12 @@ type ToolCallInput struct {
 // RecordToolCall stores one tool call of a run. Output is cut to 4000 bytes on a
 // UTF-8 boundary so the stored text stays valid.
 func (s *EnquiryService) RecordToolCall(ctx context.Context, runID string, in ToolCallInput) (queries.EnquiryAgentToolCall, error) {
-	if in.Name == "" {
+	name := clean(in.Name)
+	if name == "" {
 		return queries.EnquiryAgentToolCall{}, Invalid("name is required")
+	}
+	if in.DurationMs < 0 || in.DurationMs > math.MaxInt32 {
+		return queries.EnquiryAgentToolCall{}, Invalid("duration_ms must be between 0 and %d", math.MaxInt32)
 	}
 	output := in.Output
 	if len(output) > maxToolCallOutputBytes {
@@ -123,12 +163,16 @@ func (s *EnquiryService) RecordToolCall(ctx context.Context, runID string, in To
 		}
 		output = output[:cut]
 	}
-	if _, err := s.store.GetEnquiryAgentRun(ctx, runID); err != nil {
+	run, err := s.store.GetEnquiryAgentRun(ctx, runID)
+	if err != nil {
 		return queries.EnquiryAgentToolCall{}, FromStore(err, "run")
+	}
+	if run.Status != queries.RunStatusRunning {
+		return queries.EnquiryAgentToolCall{}, Conflict("this agent run is already finished")
 	}
 	call, err := s.store.CreateEnquiryAgentToolCall(ctx, queries.CreateEnquiryAgentToolCallParams{
 		RunID:      runID,
-		Name:       in.Name,
+		Name:       name,
 		Input:      in.Input,
 		Output:     output,
 		IsError:    in.IsError,

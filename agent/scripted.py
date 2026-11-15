@@ -38,15 +38,16 @@ WAIT_MINUTES = 5
 CANDIDATE_LIMIT = 5
 PROPOSE_LIMIT = 3
 QUANTITY_WORDS = {"x", "×", "box", "boxes", "pack", "packs", "pcs", "pc", "piece", "pieces",
-                  "unit", "units", "qty", "quantity"}
+                  "unit", "units", "qty", "quantity", "3elab", "elab", "hab", "boite", "boites",
+                  "boîte", "boîtes", "علب", "علبة", "حبة"}
 
-# quantity phrases that must not be read as strengths: "x2", "2 tabs", "2 boxes"
+# quantity phrases that must not be read as strengths: "x2", "2 tabs", "2 boxes", "2 3elab"
 _QUANTITY_PATTERNS = [
-    re.compile(r"(?<![A-Za-z])[x×]\s*\d+\b", re.IGNORECASE),
-    re.compile(r"\b\d+\s*(?:tabs?|tablets?|caps?|capsules?|boxes|box|packs?|pcs|pieces|units?)\b",
+    re.compile(r"(?<![A-Za-z])[x×]\s*\d+(?![.,]\d)\b", re.IGNORECASE),
+    re.compile(r"\b\d+\s*(?:tabs?|tablets?|caps?|capsules?|boxes|box|packs?|pcs|pieces|units?|3elab|elab|hab|bo[îi]tes?|علب|علبة|حبة)\b",
                re.IGNORECASE),
 ]
-_STRENGTH = re.compile(r"(\d+(?:[.,]\d+)?)\s*(mcg|mg|g|ml|iu)?", re.IGNORECASE)
+_STRENGTH = re.compile(r"(\d+(?:[.,]\d+)?)\s*(mcg|mg|g)\b", re.IGNORECASE)
 
 
 def run_tool(name: str, **kwargs) -> dict:
@@ -55,15 +56,18 @@ def run_tool(name: str, **kwargs) -> dict:
 
 
 def _strengths(text: str) -> set[float]:
-    """Strength numbers in mg (1g is 1000). Quantities are removed first."""
+    """Strength numbers in mg (1g is 1000, 1mcg is 0.001). Quantities are removed first."""
     cleaned = str(text or "")
     for pattern in _QUANTITY_PATTERNS:
         cleaned = pattern.sub(" ", cleaned)
     values: set[float] = set()
     for number, unit in _STRENGTH.findall(cleaned):
         value = float(number.replace(",", "."))
-        if unit.lower() == "g":
+        u = unit.lower()
+        if u == "g":
             value *= 1000
+        elif u == "mcg":
+            value /= 1000
         values.add(value)
     return values
 
@@ -116,7 +120,7 @@ def _choose_medication(enq: dict, eid, do) -> str | None:
         do("wait", enquiry_id=eid, minutes=WAIT_MINUTES)
         return None
 
-    wanted = _strengths(answer if answer else raw)
+    wanted = _strengths(answer) or _strengths(raw)
     picks = [m for m in matches if _strengths(m.get("strength")) & wanted]
     if not wanted and len(matches) == 1:
         picks = matches  # one catalogue match and no strength given: unambiguous

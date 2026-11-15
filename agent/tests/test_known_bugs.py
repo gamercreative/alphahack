@@ -94,9 +94,6 @@ def _run(monkeypatch, provider, tools):
     return http
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-11: a terminal tool that fails inside Cornilia (bad JSON arguments) is "
-                          "traced as a success, so the run ends 'completed' although nothing was closed")
 def test_bug11_terminal_tool_with_bad_json_does_not_end_the_run(monkeypatch, closed_with):
     outcomes, tools = closed_with
     provider = _Provider([_tool_call("close_enquiry", "{not json"), _completion({"content": "done"})])
@@ -108,9 +105,6 @@ def test_bug11_terminal_tool_with_bad_json_does_not_end_the_run(monkeypatch, clo
     assert_known_bug(provider.calls == 2, "the model must get the error back and be called again")
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-11: a terminal tool called with a wrong argument name is traced as a "
-                          "success, so the run ends 'completed' although nothing was closed")
 def test_bug11_terminal_tool_with_wrong_argument_does_not_end_the_run(monkeypatch, closed_with):
     outcomes, tools = closed_with
     provider = _Provider([_tool_call("close_enquiry", '{"wrong_name": "x"}'), _completion({"content": "done"})])

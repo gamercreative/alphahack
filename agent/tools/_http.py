@@ -60,8 +60,9 @@ def call(method: str, path: str, body: dict | None = None, query: dict | None = 
             return parsed
         text = raw.decode("utf-8", "replace")[:300] or str(e.reason or "")
         return {"error": {"code": f"http_{e.code}", "message": text}}
-    except urllib.error.URLError as e:
-        return {"error": {"code": "backend_unreachable", "message": f"Could not reach the backend: {e.reason}"}}
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+        reason = getattr(e, "reason", None) or str(e)
+        return {"error": {"code": "backend_unreachable", "message": f"Could not reach the backend: {reason}"[:300]}}
 
 
 def tool_error(out: dict) -> dict | None:
@@ -70,5 +71,5 @@ def tool_error(out: dict) -> dict | None:
     if err is None:
         return None
     if isinstance(err, dict):
-        return {"error": str(err.get("message", "")), "code": str(err.get("code", ""))}
-    return {"error": str(err), "code": ""}
+        return {"error": str(err.get("message", ""))[:500], "code": str(err.get("code", ""))[:100]}
+    return {"error": str(err)[:500], "code": ""}

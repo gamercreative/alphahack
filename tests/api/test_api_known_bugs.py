@@ -29,9 +29,6 @@ def _no_response(live, enquiry_id, target_id):
     assert status == 200, body
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-01: re-adding a pharmacy whose target was cancelled returns 500 "
-                          "(UNIQUE(enquiry_id, branch_id) violation is not handled)")
 def test_bug01_readd_pharmacy_after_cancel_in_window(live):
     enquiry = live.new_enquiry()
     targets = live.add_targets(enquiry["id"], ("b", "c"))
@@ -48,8 +45,6 @@ def test_bug01_readd_pharmacy_after_cancel_in_window(live):
     assert_known_bug(live.target(enquiry["id"], "c")["status"] == "approved")
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-01: re-adding a pharmacy after an undo-after-send retraction returns 500")
 def test_bug01_readd_pharmacy_after_retraction(live):
     enquiry_id, _ = live.sent_enquiry(("b",))
     queued_event = live.last_event(enquiry_id, "messages_queued")
@@ -64,9 +59,6 @@ def test_bug01_readd_pharmacy_after_retraction(live):
     assert_known_bug(live.target(enquiry_id, "b")["status"] == "approved")
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-02: undoing marked_no_response after the pharmacy replied resets the "
-                          "target to 'sent' and discards a human pharmacist's reply (rules 2, 4)")
 def test_bug02_undo_no_response_must_not_erase_a_late_reply(live):
     enquiry_id, targets = live.sent_enquiry(("b",))
     _no_response(live, enquiry_id, targets["b"]["id"])
@@ -82,9 +74,6 @@ def test_bug02_undo_no_response_must_not_erase_a_late_reply(live):
     assert_known_bug(live.target(enquiry_id, "b")["status"] == "available")
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-03: cancelling an enquiry leaves its queued messages in the outbox; "
-                          "they are delivered after the enquiry was cancelled (rule 5)")
 def test_bug03_cancelled_enquiry_must_not_deliver_queued_messages(live):
     canary_b = live.canary_in_inbox("b")
     enquiry = live.new_enquiry()
@@ -102,9 +91,6 @@ def test_bug03_cancelled_enquiry_must_not_deliver_queued_messages(live):
     assert_known_bug(enquiry["id"] not in inbox_b)
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-04: a finished agent run can be finished again; tokens, status and "
-                          "cost_micros are overwritten, so the cost report can be rewritten")
 def test_bug04_finished_run_cannot_be_finished_again(live):
     enquiry = live.new_enquiry(handled_by="agent", medication_id=None)
     status, run = live.call("POST", "/api/v1/agent/runs", "agent",
@@ -122,9 +108,6 @@ def test_bug04_finished_run_cannot_be_finished_again(live):
     assert_known_bug(live.stats_row(enquiry["id"])["cost_micros"] == cost)
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-05: sending while a clarification question is pending moves the enquiry "
-                          "to 'waiting'; the requester can then never answer (clarify -> 409)")
 def test_bug05_pending_question_survives_a_send(live):
     enquiry = live.new_enquiry(handled_by="agent")
     path = f"/api/v1/enquiries/{enquiry['id']}"
@@ -139,9 +122,6 @@ def test_bug05_pending_question_survives_a_send(live):
     assert_known_bug(send_status == 409 or clarify_status == 200, f"({send_status}, {clarify_status})")
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-06 (rule 8): customer, allergy, prescription, refill, order and cart data "
-                          "is served with no credential at all, and to the agent credential")
 @pytest.mark.parametrize("path", [
     "/api/v1/customers",
     "/api/v1/customers/cust-karim",
@@ -156,17 +136,12 @@ def test_bug06_patient_data_needs_a_credential(live, path):
     assert_known_bug((status, live.code(body)) == (401, "unauthorized"))
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-06 (rule 8): the agent credential can read customers and allergies")
 def test_bug06_agent_credential_cannot_read_customers(live):
     status, body = live.call("GET", "/api/v1/customers", "agent")
 
     assert_known_bug(status in (401, 403), f"agent credential read patient data: {status}")
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-07: a reply of kind 'available' with quantity 0 is accepted; the enquiry "
-                          "can then be closed 'available' for zero stock")
 def test_bug07_available_reply_needs_a_positive_quantity(live):
     enquiry_id, targets = live.sent_enquiry(("b",))
 
@@ -176,9 +151,6 @@ def test_bug07_available_reply_needs_a_positive_quantity(live):
     assert_known_bug(live.target(enquiry_id, "b")["status"] == "sent")
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason="BUG-08: POST /agent/runs accepts an unknown trigger (and a missing model), "
-                          "creates a run that never finishes, and clears the enquiry's wake-up")
 def test_bug08_run_with_unknown_trigger_is_rejected_and_keeps_the_wake(live):
     enquiry = live.new_enquiry(handled_by="agent", medication_id=None)
     assert _wake(live, enquiry["id"]) == ["created"]

@@ -7,6 +7,7 @@ Env: BACKEND_URL (default http://localhost:8080). Read-only.
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 
 B = os.environ.get("BACKEND_URL", "http://localhost:8080")
@@ -17,8 +18,12 @@ def req(method, path, token=None, body=None):
     if token:
         headers["Authorization"] = "Bearer " + token
     data = json.dumps(body).encode() if body is not None else None
-    with urllib.request.urlopen(urllib.request.Request(B + path, data=data, method=method, headers=headers)) as r:
-        return json.loads(r.read() or b"{}")
+    try:
+        with urllib.request.urlopen(urllib.request.Request(B + path, data=data, method=method, headers=headers), timeout=10) as r:
+            return json.loads(r.read() or b"{}")
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as err:
+        print(f"error: could not reach backend at {B}: {err}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 tok = req("POST", "/api/v1/auth/login", body={"email": "a@wassit.demo", "pin": "1234"})["token"]

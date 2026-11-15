@@ -80,8 +80,6 @@ def test_acceptance_backend_down_exits_1():
     assert result.returncode == 1, f"expected exit 1, got {result.returncode}: {result.stdout[-500:]} {result.stderr[-500:]}"
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason='BUG-13: scripts/show_results.py prints a raw Python traceback when the backend is down (the 30-second demo script)')
 def test_show_results_backend_down_exits_nonzero():
     result = _run_py("show_results.py", [], DEAD)
     assert result.returncode != 0, f"expected non-zero exit, got {result.returncode}"
@@ -137,8 +135,6 @@ def test_show_results_against_live_backend_exits_0(live):
     assert result.returncode == 0, f"expected exit 0, got {result.returncode}: {result.stderr[-800:]}"
 
 
-@pytest.mark.xfail(strict=True, raises=KnownBugFailure,
-                   reason='BUG-14: scripts/run_cases.py rewrites the tracked agent/cases/results.md on every run; there is no flag to write elsewhere')
 def test_run_cases_does_not_modify_tracked_results_file(live):
     original = RESULTS.read_bytes()
     first_id = json.loads(CASES.read_text(encoding="utf-8").splitlines()[0])["id"]

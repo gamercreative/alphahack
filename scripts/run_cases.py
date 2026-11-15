@@ -365,6 +365,8 @@ def main(argv=None):
                         help="runner rounds per case before giving up (default 12)")
     parser.add_argument("--only", metavar="CASE_ID", default=None,
                         help="run only this case id, e.g. case-06")
+    parser.add_argument("--output", type=Path, default=None,
+                        help="optional path to write markdown results table (default: stdout only)")
     args = parser.parse_args(argv)
     if args.max_rounds < 1:
         parser.error("--max-rounds must be at least 1")
@@ -395,8 +397,9 @@ def main(argv=None):
     table = render(results, args.policy, args.max_rounds, args.cases, placeholders)
     print()
     print(table)
-    RESULTS_PATH.write_text(table, encoding="utf-8")
-    print(f"wrote {RESULTS_PATH}", flush=True)
+    if args.output is not None:
+        args.output.write_text(table, encoding="utf-8")
+        print(f"wrote {args.output}", flush=True)
     return 0
 
 

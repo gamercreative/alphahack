@@ -139,28 +139,6 @@ body_has /api/v1/medications/med-concor-5 '"branch_id":"branch-byblos"'
 body_has /api/v1/medications/med-concor-5 '"available_quantity":0'
 body_has /api/v1/medications/med-concor-5 '"branch_id":"branch-hamra"'
 body_has /api/v1/medications/med-concor-5 '"available_quantity":25'
-req GET /api/v1/customers 200
-req GET /api/v1/customers/cust-nadia 200
-req GET /api/v1/customers/cust-nadia/prescriptions 200
-req GET /api/v1/customers/cust-nadia/refills 200
-req POST /api/v1/carts 201 '{"customer_id":"cust-nadia","branch_id":"branch-byblos"}'
-NADIA_CART_ID=$(id_after cart)
-req POST "/api/v1/carts/$NADIA_CART_ID/items" 409 '{"medication_id":"med-augmentin-1g","quantity":1}' conflict
-body_has "/api/v1/carts/$NADIA_CART_ID/items" contraindication_detected
-req POST "/api/v1/carts/$NADIA_CART_ID/items" 409 '{"medication_id":"med-lexotanil-3","quantity":1}' conflict
-body_has "/api/v1/carts/$NADIA_CART_ID/items" controlled_substance
-req POST /api/v1/carts 201 '{"customer_id":"cust-karim","branch_id":"branch-hamra"}'
-KARIM_CART_ID=$(id_after cart)
-req POST "/api/v1/carts/$KARIM_CART_ID/items" 409 '{"medication_id":"med-brufen-400","quantity":1}' conflict
-body_has "/api/v1/carts/$KARIM_CART_ID/items" contraindication_detected
-req POST "/api/v1/carts/$NADIA_CART_ID/items" 200 '{"medication_id":"med-glucophage-1000","prescription_id":"rx-nadia-glucophage","quantity":1}'
-req POST "/api/v1/carts/$NADIA_CART_ID/checkout" 201 '{"fulfillment_type":"delivery","delivery_address":"Rue des Croisés, Byblos"}'
-body_has "/api/v1/carts/$NADIA_CART_ID/checkout" '"batch_id":"batch-byblos-glucophage-a"'
-NADIA_ORDER_ID=$(id_after order)
-req GET /api/v1/customers/cust-nadia/orders 200
-req GET "/api/v1/orders/$NADIA_ORDER_ID" 200
-
-# Wassit: enquiries, replies, outbox and the agent credential.
 # Demo staff a/b/c/d@wassit.demo, PIN 1234. AGENT_TOKEN must match the server's AGENT_TOKEN.
 AGENT_TOKEN="${AGENT_TOKEN:-dev-agent-token}"
 
@@ -195,12 +173,33 @@ wreq() {
 # json_field KEY: the top-level field KEY of $BODY (empty if missing or not JSON).
 json_field() { printf '%s' "$BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1], ""))' "$1" 2>/dev/null; }
 
-echo "== Wassit"
-
 req POST /api/v1/auth/login 200 '{"email":"a@wassit.demo","pin":"1234"}'
 TOKEN_A=$(json_field token)
 req POST /api/v1/auth/login 200 '{"email":"b@wassit.demo","pin":"1234"}'
 TOKEN_B=$(json_field token)
+
+wreq "Bearer $TOKEN_A" GET /api/v1/customers 200
+wreq "Bearer $TOKEN_A" GET /api/v1/customers/cust-nadia 200
+wreq "Bearer $TOKEN_A" GET /api/v1/customers/cust-nadia/prescriptions 200
+wreq "Bearer $TOKEN_A" GET /api/v1/customers/cust-nadia/refills 200
+wreq "Bearer $TOKEN_A" POST /api/v1/carts 201 '{"customer_id":"cust-nadia","branch_id":"branch-byblos"}'
+NADIA_CART_ID=$(id_after cart)
+wreq "Bearer $TOKEN_A" POST "/api/v1/carts/$NADIA_CART_ID/items" 409 '{"medication_id":"med-augmentin-1g","quantity":1}' conflict
+body_has "/api/v1/carts/$NADIA_CART_ID/items" contraindication_detected
+wreq "Bearer $TOKEN_A" POST "/api/v1/carts/$NADIA_CART_ID/items" 409 '{"medication_id":"med-lexotanil-3","quantity":1}' conflict
+body_has "/api/v1/carts/$NADIA_CART_ID/items" controlled_substance
+wreq "Bearer $TOKEN_A" POST /api/v1/carts 201 '{"customer_id":"cust-karim","branch_id":"branch-hamra"}'
+KARIM_CART_ID=$(id_after cart)
+wreq "Bearer $TOKEN_A" POST "/api/v1/carts/$KARIM_CART_ID/items" 409 '{"medication_id":"med-brufen-400","quantity":1}' conflict
+body_has "/api/v1/carts/$KARIM_CART_ID/items" contraindication_detected
+wreq "Bearer $TOKEN_A" POST "/api/v1/carts/$NADIA_CART_ID/items" 200 '{"medication_id":"med-glucophage-1000","prescription_id":"rx-nadia-glucophage","quantity":1}'
+wreq "Bearer $TOKEN_A" POST "/api/v1/carts/$NADIA_CART_ID/checkout" 201 '{"fulfillment_type":"delivery","delivery_address":"Rue des Croisés, Byblos"}'
+body_has "/api/v1/carts/$NADIA_CART_ID/checkout" '"batch_id":"batch-byblos-glucophage-a"'
+NADIA_ORDER_ID=$(id_after order)
+wreq "Bearer $TOKEN_A" GET /api/v1/customers/cust-nadia/orders 200
+wreq "Bearer $TOKEN_A" GET "/api/v1/orders/$NADIA_ORDER_ID" 200
+
+echo "== Wassit"
 
 wreq "Bearer $TOKEN_A" GET /api/v1/me 200
 wreq "Bearer $TOKEN_A" POST /api/v1/enquiries 201 '{"raw_request":"smoke: panadol","medication_id":"med-panadol-advance","quantity":1,"handled_by":"manual"}'

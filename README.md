@@ -153,7 +153,6 @@ live in Go. Diagrams and the data model: [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 ## Submission
 
 - [documents/DOSYN_Wassit_Submission.pdf](documents/DOSYN_Wassit_Submission.pdf): the submission document
-- [documents/jury/](documents/jury/): material for the jury
 - [documents/SUBMISSION.md](documents/SUBMISSION.md): one page for judges
 
 ## Project structure

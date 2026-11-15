@@ -16,11 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # Markdown links whose target does not resolve today. Left in place on purpose:
 # docs are not fixed by this test suite. Entries are (source file, link target).
-KNOWN_BROKEN = {
-    # Submission files written by a parallel job; drop these once they are committed.
-    ("README.md", "documents/DOSYN_Wassit_Submission.pdf"),
-    ("README.md", "documents/jury/"),
-}
+KNOWN_BROKEN = set()
 
 
 def _rel(path):

@@ -1062,6 +1062,78 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /api/v1/targets/{id}/offers:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Record a structured offer read from a pharmacist's reply
+      description: "Who: staff at the requesting branch, or the agent on agent-handled enquiries. The target must have replied with text. Every field that is set needs evidence[field] = an exact quote from that reply. Go rules decide matches | escalated | rejected (decided_by rules): a quote not found in the reply, low confidence (< 0.7), a different strength (substitution), a partial quantity, a prescription request or an alternative reply all escalate; out of stock rejects. An offer never changes the target's status or closes the enquiry. Logs offer_extracted (caller) and offer_decided (system actor 'rules')."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OfferInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TargetOffer" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/enquiries/{id}/offers:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: List an enquiry's structured offers
+      description: "Who: staff at the requesting branch, or the agent on agent-handled enquiries. Target pharmacies never see each other's offers. Ordered by created_at."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/TargetOffer" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/speech:
+    post:
+      summary: Text to speech for a simulated call line
+      description: "Who: any staff or the agent. Answers with audio bytes, not JSON: audio/wav (SPEECH_PROVIDER say or fake) or audio/mpeg (azure). Header X-Speech-Voice names the voice used. lang empty = detect (Arabic script -> ar, French words -> fr, else en; Arabizi reads as en). 409 when SPEECH_PROVIDER=off, 502 when the provider fails."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpeechInput" }
+      responses:
+        "200":
+          description: Audio
+          headers:
+            X-Speech-Voice:
+              schema: { type: string }
+          content:
+            audio/wav:
+              schema: { type: string, format: binary }
+            audio/mpeg:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
+
   /api/v1/enquiries/{id}/notify:
     parameters:
       - $ref: "#/components/parameters/ID"
@@ -1774,6 +1846,61 @@ components:
               type: array
               description: Run summaries
               items: { $ref: "#/components/schemas/EnquiryAgentRun" }
+
+    OfferInput:
+      type: object
+      required: [confidence]
+      description: "Set at least one field. Every field that is set needs evidence[key] quoting the reply exactly (price_cents uses key 'price')."
+      properties:
+        in_stock: { type: boolean, nullable: true }
+        strength: { type: string, maxLength: 40, description: "with a unit, e.g. 500mg, 1g, 500mcg" }
+        quantity: { type: integer, nullable: true, minimum: 0 }
+        price_cents: { type: integer, format: int64, nullable: true, minimum: 0 }
+        currency: { type: string, maxLength: 8, description: "required with price_cents, e.g. LBP or USD" }
+        pickup_by: { type: string, maxLength: 80 }
+        payment: { type: string, enum: ["", cash, card, any] }
+        needs_prescription: { type: boolean, nullable: true }
+        evidence:
+          type: object
+          description: "keys: in_stock, strength, quantity, price, pickup_by, payment, needs_prescription"
+          additionalProperties: { type: string, maxLength: 200 }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+
+    TargetOffer:
+      type: object
+      properties:
+        id: { type: string }
+        enquiry_id: { type: string }
+        target_id: { type: string }
+        branch_id: { type: string }
+        source_text: { type: string, description: "copy of the pharmacist reply the fields were read from" }
+        extracted_by: { type: string, enum: [staff, agent] }
+        in_stock: { type: boolean, nullable: true }
+        strength: { type: string }
+        quantity: { type: integer, nullable: true }
+        price_cents: { type: integer, format: int64, nullable: true }
+        currency: { type: string }
+        pickup_by: { type: string }
+        payment: { type: string, enum: ["", cash, card, any] }
+        needs_prescription: { type: boolean, nullable: true }
+        evidence:
+          type: object
+          additionalProperties: { type: string }
+        confidence: { type: number }
+        decision: { type: string, enum: [matches, escalated, rejected] }
+        decided_by: { type: string, enum: [rules, human] }
+        reasons:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+
+    SpeechInput:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 600 }
+        lang: { type: string, enum: ["", ar, en, fr] }
+        speaker: { type: string, enum: ["", agent, pharmacy], description: "two voices so a call sounds like two people; empty = agent" }
 
     EnquiryTarget:
       type: object

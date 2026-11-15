@@ -35,7 +35,15 @@ const (
 	CodeUnauthorized   = "unauthorized"    // 401: missing or bad credential
 	CodeForbidden      = "forbidden"       // 403
 	CodeAgentForbidden = "agent_forbidden" // 403: agent credential on a human-only route
+
+	CodeContentFiltered = "content_filtered" // 422: agent text blocked by the content filter (rule 1)
 )
+
+// ContentFiltered is returned when CheckOutboundText blocks agent text; message
+// is the filter's teaching reason.
+func ContentFiltered(reason string) *Error {
+	return &Error{Code: CodeContentFiltered, Message: reason}
+}
 
 func Unauthorized(message string) *Error {
 	return &Error{Code: CodeUnauthorized, Message: message}

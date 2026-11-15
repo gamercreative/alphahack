@@ -92,6 +92,17 @@ func run() error {
 	// Services and handlers.
 	tools := services.DefaultTools()
 	pharmacySvc := services.NewPharmacyService(store)
+	var speech ai.Speech
+	if cfg.SpeechProvider != "off" {
+		speech, err = ai.NewSpeech(ai.SpeechOptions{
+			Provider: cfg.SpeechProvider, AzureKey: cfg.AzureSpeechKey,
+			AzureRegion: cfg.AzureSpeechRegion, Voices: cfg.SpeechVoices,
+		})
+		if err != nil {
+			return fmt.Errorf("speech provider: %w", err)
+		}
+		logger.Info("speech provider", "provider", speech.Name())
+	}
 	enquirySvc := services.NewEnquiryService(store, services.EnquiryConfig{
 		UndoWindow:           cfg.UndoWindow,
 		AgentToken:           cfg.AgentToken,
@@ -99,6 +110,7 @@ func run() error {
 		AgentPriceOutPerMTok: cfg.AgentPriceOutPerMTok,
 		WaitUnit:             cfg.WaitUnit,
 		Logger:               logger,
+		Speech:               speech,
 	})
 	// Outbox dispatcher: queued -> sent once send_after has passed.
 	go enquirySvc.RunDispatcher(ctx, 250*time.Millisecond)
@@ -110,10 +122,12 @@ func run() error {
 			HistoryLimit:  cfg.AIHistoryLimit,
 			MaxIterations: cfg.AIMaxIterations,
 		}),
-		Pharmacy: pharmacySvc,
-		Enquiry:  enquirySvc,
-		Health:   services.NewHealthService(store),
-		Logger:   logger,
+		Pharmacy:  pharmacySvc,
+		Enquiry:   enquirySvc,
+		Reference: services.NewReferenceService(store, cfg.UploadDir),
+		Stock:     services.NewStockService(store, nil),
+		Health:    services.NewHealthService(store),
+		Logger:    logger,
 	})
 
 	mux := http.NewServeMux()

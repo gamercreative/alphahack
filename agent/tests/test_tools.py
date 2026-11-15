@@ -293,3 +293,34 @@ def test_all_twelve_tools_are_defined():
         "propose_targets", "send_enquiries", "follow_up", "mark_no_response", "notify_requester",
         "wait", "close_enquiry",
     }
+
+
+def test_inventory_shield_policy_flags_and_fefo_order():
+    batches = [
+        {"id": "b-recalled", "batch_number": "REC-1", "expiry_date": "2027-01-15T00:00:00Z",
+         "quantity_on_hand": 10, "quantity_reserved": 0, "is_recalled": True},
+        {"id": "b-expired", "batch_number": "EXP-1", "expiry_date": "2025-12-01T00:00:00Z",
+         "quantity_on_hand": 10, "quantity_reserved": 0, "is_recalled": False},
+        {"id": "b-later", "batch_number": "AUG-2801", "expiry_date": "2028-01-31T00:00:00Z",
+         "quantity_on_hand": 2, "quantity_reserved": 0, "is_recalled": False},
+        {"id": "b-sooner", "batch_number": "AUG-2704", "expiry_date": "2027-04-30T00:00:00Z",
+         "quantity_on_hand": 5, "quantity_reserved": 1, "is_recalled": False},
+    ]
+    shield = catalogue.evaluate_inventory_shield(batches, active_refills=4, requested_qty=3, chronic_eligible=True)
+    assert [b["batch_number"] for b in shield["fefo_batches"]] == ["AUG-2704", "AUG-2801"]
+    assert shield["total_available"] == 6
+    assert shield["chronic_reserved"] == 4
+    assert shield["surplus_for_peers"] == 2
+    assert set(shield["policy_flags"]) == {
+        "RARE_PROTECT",
+        "CHRONIC_BUFFER",
+        "EXCHANGE_ONLY",
+        "NEAR_EXPIRY_PUSH",
+    }
+    assert len(json.dumps(shield)) < 2000
+
+
+def test_normalize_intake_query_extracts_franco_tokens_and_form():
+    tokens, form = catalogue.normalize_intake_query("badde augmentin 1g 2 3elab habb")
+    assert tokens == ["augmentin"]
+    assert form == "tablet"

@@ -61,10 +61,13 @@ func TestLoadDefaults(t *testing.T) {
 				LogLevel:        "info",
 				UndoWindow:      60 * time.Second,
 				WaitUnit:        time.Minute,
+				UploadDir:       "./uploads",
 				OllamaBaseURL:   "http://localhost:11434",
 				OllamaModel:     "qwen3.5:35b-a3b",
 				OllamaThink:     "",
 				OllamaNumCtx:    0,
+				SpeechProvider:  nativeSpeech(),
+				SpeechVoices:    map[string]string{},
 			},
 		},
 	}

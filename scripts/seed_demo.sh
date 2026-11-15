@@ -57,6 +57,21 @@ EOF
 fi
 echo "backend healthy at $BACKEND_URL"
 
+# 1b. ensure at least one default agent exists in /v1/agents
+agents_resp=$(curl -sS --max-time 10 -H 'Accept: application/json' "$BACKEND_URL/v1/agents") || agents_resp="{}"
+agent_id=$(printf '%s' "$agents_resp" | "$PYTHON" -c '
+import json, sys
+data = (json.load(sys.stdin) or {}).get("data") or []
+print(data[0].get("id", "") if data and isinstance(data[0], dict) else "")
+')
+if [ -z "$agent_id" ]; then
+  create_resp=$(curl -sS --max-time 10 -X POST "$BACKEND_URL/v1/agents" \
+    -H 'Content-Type: application/json' -H 'Accept: application/json' \
+    -d '{"name":"Wassit B2B Pharmacy Coordinator","system_prompt":"You are Wassit, an admin coordinator for pharmacists helping coordinate B2B medicine availability enquiries and inventory shield policies across participating branches. Never diagnose, prescribe, or suggest clinical substitutions.","model":"qwen3.5:35b-a3b"}') || create_resp="{}"
+  agent_id=$(printf '%s' "$create_resp" | jget id)
+fi
+echo "default agent_id: ${agent_id:-missing}"
+
 # 2. demo logins (PIN is the demo PIN; tokens are never printed)
 printf '\n%-32s %-22s %-6s %s\n' "PHARMACY" "EMAIL" "PIN" "LOGIN"
 failed=0

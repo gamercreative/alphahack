@@ -47,6 +47,17 @@ type Config struct {
 	AgentPriceInPerMTok  float64       // AGENT_PRICE_IN_PER_MTOK, USD per million input tokens, default 0
 	AgentPriceOutPerMTok float64       // AGENT_PRICE_OUT_PER_MTOK, USD per million output tokens, default 0
 	WaitUnit             time.Duration // WAIT_UNIT, default "1m": length of one agent wait() minute (demo: "2s")
+
+	// Uploaded files (reference documents) live under UPLOAD_DIR/reference.
+	UploadDir string // UPLOAD_DIR, default "./uploads"
+
+	// Text to speech for simulated calls (POST /api/v1/speech).
+	// SPEECH_PROVIDER: say | azure | fake | off. Default: azure when AZURE_SPEECH_KEY is
+	// set, else say on macOS, else fake.
+	SpeechProvider    string
+	AzureSpeechKey    string            // AZURE_SPEECH_KEY
+	AzureSpeechRegion string            // AZURE_SPEECH_REGION, e.g. "westeurope"; required with azure
+	SpeechVoices      map[string]string // SPEECH_VOICE_<LANG>_<SPEAKER>, e.g. SPEECH_VOICE_AR_AGENT
 }
 
 // Load builds the Config from the process environment and ./.env.

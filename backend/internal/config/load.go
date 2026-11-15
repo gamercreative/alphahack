@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -82,9 +83,41 @@ func load(getenv func(string) string, dotenvPath string) (Config, error) {
 	c.UndoWindow = l.duration("UNDO_WINDOW", 60*time.Second)
 	c.AgentToken = get("AGENT_TOKEN")
 	c.WaitUnit = l.duration("WAIT_UNIT", time.Minute)
+	c.UploadDir = withDefault(strings.TrimSpace(get("UPLOAD_DIR")), "./uploads")
 	c.AgentPriceInPerMTok = l.price("AGENT_PRICE_IN_PER_MTOK")
 	c.AgentPriceOutPerMTok = l.price("AGENT_PRICE_OUT_PER_MTOK")
 	c.CORSOrigins = splitList(withDefault(get("CORS_ALLOWED_ORIGINS"), "*"))
+
+	c.AzureSpeechKey = get("AZURE_SPEECH_KEY")
+	c.AzureSpeechRegion = get("AZURE_SPEECH_REGION")
+	c.SpeechProvider = get("SPEECH_PROVIDER")
+	if c.SpeechProvider == "" {
+		switch {
+		case c.AzureSpeechKey != "":
+			c.SpeechProvider = "azure"
+		case runtime.GOOS == "darwin":
+			c.SpeechProvider = "say"
+		default:
+			c.SpeechProvider = "fake"
+		}
+	}
+	switch c.SpeechProvider {
+	case "say", "fake", "off":
+	case "azure":
+		if c.AzureSpeechKey == "" || c.AzureSpeechRegion == "" {
+			l.fail("SPEECH_PROVIDER=azure needs AZURE_SPEECH_KEY and AZURE_SPEECH_REGION")
+		}
+	default:
+		l.fail("SPEECH_PROVIDER must be one of say, azure, fake, off")
+	}
+	c.SpeechVoices = map[string]string{}
+	for _, lang := range []string{"ar", "en", "fr"} {
+		for _, speaker := range []string{"agent", "pharmacy"} {
+			if v := get("SPEECH_VOICE_" + strings.ToUpper(lang+"_"+speaker)); v != "" {
+				c.SpeechVoices[lang+"_"+speaker] = v
+			}
+		}
+	}
 
 	c.LogLevel = withDefault(get("LOG_LEVEL"), "info")
 	switch c.LogLevel {

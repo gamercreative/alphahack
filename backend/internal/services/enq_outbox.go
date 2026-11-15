@@ -284,6 +284,7 @@ func (s *EnquiryService) Notify(ctx context.Context, a Actor, id, body string) (
 		return queries.OutboxMessage{}, Invalid("body must be between %d and %d characters", outboxBodyMin, outboxBodyMax)
 	}
 	var out queries.OutboxMessage
+	var blocked string // content filter reason; the tx commits only its event
 	err := s.store.InTx(ctx, func(q queries.Querier) error {
 		e, err := q.GetEnquiryForUpdate(ctx, id)
 		if err != nil {
@@ -294,6 +295,11 @@ func (s *EnquiryService) Notify(ctx context.Context, a Actor, id, body string) (
 		}
 		if isFinal(e) {
 			return Conflict("this enquiry is closed")
+		}
+		if a.IsAgent() {
+			if blocked, err = s.filterAgentText(ctx, q, e, body); err != nil || blocked != "" {
+				return err
+			}
 		}
 		out, err = q.CreateOutboxMessage(ctx, queries.CreateOutboxMessageParams{
 			EnquiryID: e.ID, TargetID: nil, Kind: queries.OutboxKindNotification, Body: body,
@@ -309,6 +315,9 @@ func (s *EnquiryService) Notify(ctx context.Context, a Actor, id, body string) (
 	})
 	if err != nil {
 		return queries.OutboxMessage{}, err
+	}
+	if blocked != "" {
+		return queries.OutboxMessage{}, ContentFiltered(blocked)
 	}
 	return out, nil
 }

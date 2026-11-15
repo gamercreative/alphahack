@@ -135,6 +135,7 @@ func (s *EnquiryService) Reply(ctx context.Context, a Actor, targetID string, in
 // RequestClarification lets the agent ask the requester a question (agent only).
 func (s *EnquiryService) RequestClarification(ctx context.Context, a Actor, id, question string) (queries.Enquiry, error) {
 	var out queries.Enquiry
+	var blocked string // content filter reason; the tx commits only its event
 	err := s.store.InTx(ctx, func(q queries.Querier) error {
 		e, err := q.GetEnquiryForUpdate(ctx, id)
 		if err != nil {
@@ -152,6 +153,11 @@ func (s *EnquiryService) RequestClarification(ctx context.Context, a Actor, id, 
 		question = strings.TrimSpace(question)
 		if n := utf8.RuneCountInString(question); n < 1 || n > maxClarificationChars {
 			return Invalid("question must be 1 to %d characters", maxClarificationChars)
+		}
+		if a.IsAgent() {
+			if blocked, err = s.filterAgentText(ctx, q, e, question); err != nil || blocked != "" {
+				return err
+			}
 		}
 
 		u := toUpdate(e)
@@ -173,6 +179,9 @@ func (s *EnquiryService) RequestClarification(ctx context.Context, a Actor, id, 
 	})
 	if err != nil {
 		return queries.Enquiry{}, err
+	}
+	if blocked != "" {
+		return queries.Enquiry{}, ContentFiltered(blocked)
 	}
 	return out, nil
 }

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dosyn-web",
+      "runtimeExecutable": "python3.13",
+      "runtimeArgs": ["-m", "http.server", "5500", "--directory", "/Users/akramseifeddine/Documents/alphahack/web"],
+      "port": 5500
+    }
+  ]
+}

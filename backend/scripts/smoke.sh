@@ -216,5 +216,63 @@ wreq "Bearer $TOKEN_A" GET /api/v1/stats 200
 wreq "Agent $AGENT_TOKEN" POST "/api/v1/enquiries/$ENQ_ID/clarify" 403 '{"answer":"smoke"}' agent_forbidden
 wreq "" GET /api/v1/me 401 '' unauthorized
 
+echo "== Offers + speech"
+
+# data_id: the first id under "data" in $BODY.
+data_id() { printf '%s' "$BODY" | python3 -c 'import json,sys; d=json.load(sys.stdin).get("data") or [{}]; print(d[0].get("id",""))' 2>/dev/null; }
+
+wreq "Bearer $TOKEN_A" POST /api/v1/enquiries 201 '{"raw_request":"smoke: augmentin 1g x2","medication_id":"med-augmentin-1g","quantity":2,"handled_by":"manual"}'
+OFFER_ENQ_ID=$(json_field id)
+wreq "Bearer $TOKEN_A" POST "/api/v1/enquiries/$OFFER_ENQ_ID/targets" 201 '{"branch_ids":["branch-achrafieh"]}'
+OFFER_TARGET_ID=$(data_id)
+wreq "Bearer $TOKEN_A" POST "/api/v1/enquiries/$OFFER_ENQ_ID/send" 200
+OFFER_BODY='{"in_stock":true,"strength":"625mg","payment":"cash","evidence":{"in_stock":"3ande","strength":"625","payment":"cash"},"confidence":0.85}'
+wreq "Bearer $TOKEN_A" POST "/api/v1/targets/$OFFER_TARGET_ID/offers" 400 '{"in_stock":true}' validation_failed
+wreq "Bearer $TOKEN_A" POST "/api/v1/targets/$OFFER_TARGET_ID/offers" 409 "$OFFER_BODY" conflict
+wreq "Bearer $TOKEN_B" POST "/api/v1/targets/$OFFER_TARGET_ID/offers" 403 "$OFFER_BODY" forbidden
+wreq "Agent $AGENT_TOKEN" POST "/api/v1/targets/$OFFER_TARGET_ID/offers" 403 "$OFFER_BODY" forbidden
+wreq "" POST "/api/v1/targets/$OFFER_TARGET_ID/offers" 401 "$OFFER_BODY" unauthorized
+
+# The reply needs the enquiry delivered (send_after = now + UNDO_WINDOW). Wait up to SMOKE_UNDO_WAIT seconds.
+delivered=0
+for _ in $(seq 1 "${SMOKE_UNDO_WAIT:-15}"); do
+  BODY=$(curl -sS -m 10 "$BASE/api/v1/inbox" -H "Authorization: Bearer $TOKEN_B")
+  case "$BODY" in *"$OFFER_TARGET_ID"*) delivered=1; break ;; esac
+  sleep 1
+done
+if [ "$delivered" = 1 ]; then
+  wreq "Bearer $TOKEN_B" POST "/api/v1/targets/$OFFER_TARGET_ID/reply" 200 '{"kind":"alternative","text":"3ande bas 625, ta3e abel l 6, cash"}'
+  wreq "Bearer $TOKEN_A" POST "/api/v1/targets/$OFFER_TARGET_ID/offers" 201 "$OFFER_BODY"
+  OFFER_ID=$(json_field id)
+  body_has "offer decision" '"decision":"escalated"'
+  body_has "offer decided_by" '"decided_by":"rules"'
+  wreq "Bearer $TOKEN_A" GET "/api/v1/enquiries/$OFFER_ENQ_ID/offers" 200
+  body_has "/api/v1/enquiries/{id}/offers" "\"id\":\"$OFFER_ID\""
+  wreq "Bearer $TOKEN_B" GET "/api/v1/enquiries/$OFFER_ENQ_ID/offers" 403 '' forbidden
+  wreq "Bearer $TOKEN_A" GET "/api/v1/enquiries/$OFFER_ENQ_ID" 200
+  body_has "offer events" '"type":"offer_decided"'
+else
+  printf 'SKIP offers after reply: enquiry not delivered within %ss (server UNDO_WINDOW too long; set SMOKE_UNDO_WAIT)\n' "${SMOKE_UNDO_WAIT:-15}"
+fi
+wreq "Bearer $TOKEN_A" POST "/api/v1/enquiries/$OFFER_ENQ_ID/close" 200 '{"outcome":"unable_to_confirm"}'
+
+# Speech answers audio bytes, so check status and size instead of the JSON body.
+speech_check() {
+  local auth="$1" want="$2" data="$3" args out status size
+  args=(-sS -m 60 -o /dev/null -w '%{http_code} %{size_download}' -X POST "$BASE/api/v1/speech" -H 'Content-Type: application/json' -d "$data")
+  if [ -n "$auth" ]; then args+=(-H "Authorization: $auth"); fi
+  out=$(curl "${args[@]}")
+  status="${out%% *}"; size="${out##* }"
+  if [ "$status" = "$want" ] && { [ "$want" != 200 ] || [ "$size" -gt 44 ]; }; then
+    PASS=$((PASS + 1)); printf 'PASS %-6s %-45s %s (%s bytes)\n' POST /api/v1/speech "$status" "$size"
+  else
+    FAIL=$((FAIL + 1)); printf 'FAIL %-6s %-45s got %s (%s bytes) want %s\n' POST /api/v1/speech "$status" "$size" "$want"
+  fi
+}
+speech_check "Bearer $TOKEN_A" 200 '{"text":"Hello, do you have Augmentin 1g?","speaker":"agent"}'
+speech_check "Agent $AGENT_TOKEN" 200 '{"text":"مرحبا، عندكن أوغمنتين؟","speaker":"pharmacy"}'
+speech_check "Bearer $TOKEN_A" 400 '{"text":"hi","lang":"de"}'
+speech_check "" 401 '{"text":"hi"}'
+
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

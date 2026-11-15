@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"time"
 
+	"alphahack/internal/ai"
 	"alphahack/internal/queries"
 )
 
@@ -47,6 +48,7 @@ type EnquiryConfig struct {
 	WaitUnit             time.Duration // one wait() "minute"; default 1m (demo can shrink it)
 	Now                  func() time.Time
 	Logger               *slog.Logger // background errors (outbox dispatcher); nil = slog.Default()
+	Speech               ai.Speech    // text to speech for simulated calls; nil = off
 }
 
 type EnquiryService struct {

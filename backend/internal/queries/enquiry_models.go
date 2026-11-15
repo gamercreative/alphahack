@@ -295,3 +295,127 @@ type CreateEnquiryAgentToolCallParams struct {
 	IsError    bool
 	DurationMs int
 }
+
+// Offer decisions (target_offers.decision), set by the Go rules in services.
+const (
+	OfferMatches   = "matches"
+	OfferEscalated = "escalated"
+	OfferRejected  = "rejected"
+)
+
+// TargetOffer is a structured offer read from one pharmacist reply (migration 0006).
+type TargetOffer struct {
+	ID                string          `json:"id"`
+	EnquiryID         string          `json:"enquiry_id"`
+	TargetID          string          `json:"target_id"`
+	BranchID          string          `json:"branch_id"`
+	SourceText        string          `json:"source_text"`
+	ExtractedBy       string          `json:"extracted_by"`
+	InStock           *bool           `json:"in_stock"`
+	Strength          string          `json:"strength"`
+	Quantity          *int            `json:"quantity"`
+	PriceCents        *int64          `json:"price_cents"`
+	Currency          string          `json:"currency"`
+	PickupBy          string          `json:"pickup_by"`
+	Payment           string          `json:"payment"`
+	NeedsPrescription *bool           `json:"needs_prescription"`
+	Evidence          json.RawMessage `json:"evidence"`
+	Confidence        float64         `json:"confidence"`
+	Decision          string          `json:"decision"`
+	DecidedBy         string          `json:"decided_by"`
+	Reasons           json.RawMessage `json:"reasons"`
+	CreatedAt         time.Time       `json:"created_at"`
+}
+
+type CreateTargetOfferParams struct {
+	EnquiryID         string
+	TargetID          string
+	BranchID          string
+	SourceText        string
+	ExtractedBy       string
+	InStock           *bool
+	Strength          string
+	Quantity          *int
+	PriceCents        *int64
+	Currency          string
+	PickupBy          string
+	Payment           string
+	NeedsPrescription *bool
+	Evidence          json.RawMessage
+	Confidence        float64
+	Decision          string
+	DecidedBy         string
+	Reasons           json.RawMessage
+}
+
+// ---- Government reference (migration 0007_gov_reference) ----
+
+// Source label of the seeded rows (never real MoPH data).
+const GovSourceDemoSeed = "Demo seed, not real MoPH data"
+
+type GovProduct struct {
+	Code               string    `json:"code"`
+	RegNo              string    `json:"reg_no"`
+	BrandName          string    `json:"brand_name"`
+	Ingredient         string    `json:"ingredient"`
+	Strength           string    `json:"strength"`
+	DosageForm         string    `json:"dosage_form"`
+	OfficialPriceCents int64     `json:"official_price_cents"`
+	Source             string    `json:"source"`
+	DocumentID         *string   `json:"document_id"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
+type CreateGovProductParams struct {
+	Code               string
+	RegNo              string
+	BrandName          string
+	Ingredient         string
+	Strength           string
+	DosageForm         string
+	OfficialPriceCents int64
+	Source             string
+	DocumentID         *string
+}
+
+// ListGovProductsParams: empty strings mean "no filter". Q is an ILIKE pattern
+// fragment whose % _ \ are already escaped by the caller.
+type ListGovProductsParams struct {
+	Q          string
+	Ingredient string
+	Strength   string
+	DosageForm string
+	Limit      int
+	Offset     int
+}
+
+// ReferenceDocument: StoragePath and UploadedByStaffID stay server side (json "-").
+type ReferenceDocument struct {
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	ContentType       string    `json:"content_type"`
+	SizeBytes         int64     `json:"size_bytes"`
+	SHA256            string    `json:"sha256"`
+	UploadedByStaffID string    `json:"-"`
+	StoragePath       string    `json:"-"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
+type CreateReferenceDocumentParams struct {
+	ID                string
+	Name              string
+	ContentType       string
+	SizeBytes         int64
+	SHA256            string
+	UploadedByStaffID string
+	StoragePath       string
+}
+
+// CreateInventoryBatchParams inserts a fresh, unreserved, unrecalled batch.
+type CreateInventoryBatchParams struct {
+	BranchID       string
+	MedicationID   string
+	BatchNumber    string
+	ExpiryDate     time.Time
+	QuantityOnHand int
+}

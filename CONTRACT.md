@@ -1,4 +1,4 @@
-# CONTRACT: Wassit (frozen 2026-11-14 at W2; change only through the lead)
+# CONTRACT: Wassit (frozen 2026-11-14 at W2; amended 2026-11-15 by the owner for the DOSYN client redesign, see documents/CONTRACT_PROPOSAL_dosyn_redesign.md; change only through the lead)
 
 ## Idea in one line
 A pharmacist-to-pharmacist medicine availability enquiry system that works fully by hand, plus
@@ -6,20 +6,42 @@ Wassit, an agent that runs the same workflow through the same API with its own c
 inside a guarded state machine (code decides what is allowed, the model decides what to do next).
 
 ## Product rules (reject any diff that breaks one)
-1. The agent never diagnoses, prescribes, recommends or substitutes. An alternative offered by a
-   pharmacy is shown to the requester as an option and never counts as a match.
-2. Only a human pharmacist at the target branch can reply available/unavailable/alternative.
-   Agent credentials get 403 `agent_forbidden` on reply, approve and clarify. No tool marks stock available.
+1. The agent never diagnoses, prescribes, recommends or substitutes. A pharmacy's offer of a
+   different strength counts as a match only when the Go dose rules accept it as an equivalent:
+   same active ingredient, same dosage form, whole units that add up exactly to the requested
+   strength per dose (2 x 500mg = 1 x 1000mg; 625mg can never make 1000mg), and the government
+   reference lists the offered product. Anything else is shown as an option and never counts as a
+   match. The agent can report what a pharmacy offered; only the rules can mark an equivalent.
+2. Only a human pharmacist at the target branch can reply available/unavailable/alternative, or
+   upload a package photo for that target. Agent credentials get 403 `agent_forbidden` on reply,
+   approve, clarify, photo upload and stock update. No tool marks stock available.
 3. No reply is `no_response`, never `unavailable`.
-4. Every state change writes an `enquiry_events` row (actor_type staff | agent | system) and, where
-   reversible, its inverse. Undo runs the stored inverse.
+4. Every state change writes an `enquiry_events` row (actor_type staff | agent | system | client) and,
+   where reversible, its inverse. Undo runs the stored inverse. API responses show a derived decider
+   on every event: rules | human | pharmacy | client | wassit (wassit = relayed or read only; the API
+   never says the AI decided).
 5. Outbound messages go through `outbox_messages` with `send_after = now + UNDO_WINDOW` (default 60s).
    Cancel inside the window means the target never sees it.
 6. Closing rules live in Go: `available` needs >= 1 target `available`; `unavailable` needs every
-   target replied `unavailable`; otherwise `unable_to_confirm` or `cancelled`.
+   target replied `unavailable`; otherwise `unable_to_confirm` or `cancelled`. A client-desk enquiry
+   closes `available` at a branch only if that branch has a verified offer (rule 11).
 7. Agent works only from DB catalogue and pharmacy data. Ambiguous request -> ask the requester.
-8. Out of scope, never read by the agent: customers, carts, orders, prescriptions, refills,
-   contraindication/allergy fields.
+8. Clients may have an account (display name, phone, PIN), scheduled medicines and tickets.
+   Pharmacies never see client identity (client tickets reach them as "DOSYN client desk").
+   Out of scope and never read by the agent: the `customers` table, carts, orders, prescriptions,
+   refill subscriptions, and any contraindication, allergy or chronic-condition field.
+9. Content filter: every outbound text written by the agent (notifications, clarification questions,
+   outbox bodies, ticket notes) passes a Go check before it is stored: no recommendation phrases
+   (EN/AR/FR/Arabizi list in code) and no medicine name other than the ticket's medicine or one a
+   pharmacy offered. Blocked -> 422 `content_filtered` with a teaching message and a
+   `content_filtered` event; nothing is sent.
+10. Photos are evidence, not proof. The pharmacist types the product code and expiry next to the
+   photo; Go checks the code against the government reference and the expiry against the pickup
+   window. Anything unchecked or mismatched goes to a human reviewer. The UI always says that a
+   photo alone does not prove a box is genuine.
+11. Best offer is computed in Go from verified offers only (decision `matches`, including
+   rule-accepted equivalents, plus a `verified` photo): lowest total price, then latest expiry.
+   The model never ranks offers.
 
 ## Loop owner + model
 - Cornilia-driven. The backend never calls Cornilia.
@@ -30,7 +52,10 @@ inside a guarded state machine (code decides what is allowed, the model decides 
 - Model `qwen3.5:35b-a3b` via Ollama, thinking off. Cornilia pinned at git tag `v0.1.0`.
 - Token usage: Cornilia v0.1.0 drops `response.usage`; agent/usage.py wraps the provider's
   OneShotMessage to sum usage per run (owner chose option a; no Cornilia core edit).
-- Wake triggers: `created` (handled_by=agent), `clarified`, `approved`, `reply`, `timer` (next_wake_at passed).
+- Wake triggers: `created` (handled_by=agent), `clarified`, `approved`, `reply`, `timer` (next_wake_at passed),
+  `scheduled` (a medicine schedule opened a new client ticket).
+- Client-desk target approval: Go auto-approves agent-proposed targets when every proposed branch is
+  in the ranked candidate list; otherwise they wait for the desk staff (`desk@wassit.demo`).
 
 ## Data (migration 0004_enquiries; plus db/schema.dbml + internal/queries/models.go)
 Reuse: `branches` = participating pharmacies, `medications` = catalogue, `inventory_batches` = reported stock.

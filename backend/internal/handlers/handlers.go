@@ -22,6 +22,8 @@ type Deps struct {
 	Chat          services.ChatService
 	Pharmacy      *services.PharmacyService
 	Enquiry       *services.EnquiryService
+	Reference     *services.ReferenceService // needs Enquiry (auth)
+	Stock         *services.StockService     // needs Enquiry (auth)
 	Health        services.HealthService
 	Logger        *slog.Logger
 }
@@ -32,6 +34,8 @@ type Handlers struct {
 	chat          services.ChatService
 	pharmacy      *services.PharmacyService
 	enq           *services.EnquiryService
+	reference     *services.ReferenceService
+	stock         *services.StockService
 	health        services.HealthService
 	log           *slog.Logger
 }
@@ -47,6 +51,8 @@ func New(d Deps) *Handlers {
 		chat:          d.Chat,
 		pharmacy:      d.Pharmacy,
 		enq:           d.Enquiry,
+		reference:     d.Reference,
+		stock:         d.Stock,
 		health:        d.Health,
 		log:           log,
 	}
@@ -65,9 +71,16 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 		h.registerAuth(mux)      // enq_auth.go
 		h.registerEnquiries(mux) // enq_enquiries.go
 		h.registerReplies(mux)   // enq_replies.go
+		h.registerOffers(mux)    // enq_offers.go
 		h.registerOutbox(mux)    // enq_outbox.go
 		h.registerAgentAPI(mux)  // enq_agentapi.go
 		h.registerStats(mux)     // enq_stats.go
+		if h.reference != nil {
+			h.registerReference(mux) // reference.go
+		}
+		if h.stock != nil {
+			h.registerStock(mux) // stock.go
+		}
 	}
 }
 
@@ -173,6 +186,8 @@ func statusFor(code string) int {
 		return http.StatusUnauthorized
 	case services.CodeForbidden, services.CodeAgentForbidden:
 		return http.StatusForbidden
+	case services.CodeContentFiltered:
+		return http.StatusUnprocessableEntity
 	default:
 		return http.StatusInternalServerError
 	}

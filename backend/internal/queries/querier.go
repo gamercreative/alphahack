@@ -200,6 +200,31 @@ type Querier interface {
 	ListEnquiryAgentRuns(ctx context.Context, enquiryID string) ([]EnquiryAgentRun, error)
 	CreateEnquiryAgentToolCall(ctx context.Context, p CreateEnquiryAgentToolCallParams) (EnquiryAgentToolCall, error)
 
+	// Offers (migration 0006). ListTargetOffers orders by created_at, id.
+	CreateTargetOffer(ctx context.Context, p CreateTargetOfferParams) (TargetOffer, error)
+	ListTargetOffers(ctx context.Context, enquiryID string) ([]TargetOffer, error)
+
 	// Stats: one row per enquiry, newest first.
 	ListEnquiryStats(ctx context.Context, limit, offset int) ([]EnquiryStat, error)
+
+	// ---- Government reference + staff stock (reference.go, migration 0007) ----
+
+	// ListGovProducts: ingredient/strength/form are case-insensitive exact
+	// filters, Q an ILIKE fragment on brand_name or ingredient; "" = no filter.
+	// Ordered by ingredient, brand_name, dosage_form, strength, code.
+	ListGovProducts(ctx context.Context, p ListGovProductsParams) ([]GovProduct, error)
+	// CreateGovProduct: ErrDuplicate on a taken code or (ingredient, strength,
+	// dosage_form, brand_name); ErrBadReference on an unknown document_id.
+	CreateGovProduct(ctx context.Context, p CreateGovProductParams) (GovProduct, error)
+	// Reference documents. ListReferenceDocuments orders by created_at DESC, id.
+	CreateReferenceDocument(ctx context.Context, p CreateReferenceDocumentParams) (ReferenceDocument, error)
+	ListReferenceDocuments(ctx context.Context, limit, offset int) ([]ReferenceDocument, error)
+
+	// GetStockBatchForUpdate locks (FOR UPDATE) the soonest-expiring unexpired,
+	// unrecalled batch of medicationID at branchID, whatever its quantity.
+	// ErrNotFound when there is none. Use inside InTx.
+	GetStockBatchForUpdate(ctx context.Context, branchID, medicationID string) (InventoryBatch, error)
+	// SetBatchQuantityOnHand sets quantity_on_hand (and updated_at). ErrNotFound when no batch.
+	SetBatchQuantityOnHand(ctx context.Context, batchID string, quantity int) (InventoryBatch, error)
+	CreateInventoryBatch(ctx context.Context, p CreateInventoryBatchParams) (InventoryBatch, error)
 }

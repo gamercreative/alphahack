@@ -230,3 +230,68 @@ Table refill_subscriptions {
     (customer_id, next_refill_at) [name: 'refill_subscriptions_customer_idx']
   }
 }
+
+// Wassit enquiry tables (staff, enquiries, enquiry_targets, outbox_messages,
+// enquiry_events, agent runs) are defined in db/migrations/0004_enquiries.up.sql.
+
+Table target_offers {
+  id text [pk, default: `gen_random_uuid()::text`]
+  enquiry_id text [not null, note: 'enquiries.id, ON DELETE CASCADE']
+  target_id text [not null, note: 'enquiry_targets.id, ON DELETE CASCADE']
+  branch_id text [not null, ref: > branches.id]
+  source_text text [not null, note: 'copy of the pharmacist reply the fields were read from']
+  extracted_by text [not null, note: 'staff | agent']
+  in_stock boolean [null]
+  strength text [not null, default: '']
+  quantity integer [null, note: '>= 0']
+  price_cents bigint [null, note: '>= 0']
+  currency text [not null, default: '']
+  pickup_by text [not null, default: '', note: 'free text, e.g. "before 18:00"']
+  payment text [not null, default: '', note: "'' | cash | card | any"]
+  needs_prescription boolean [null]
+  evidence jsonb [not null, default: '{}', note: 'field -> exact quote from source_text']
+  confidence double [not null, note: '0..1']
+  decision text [not null, note: 'matches | escalated | rejected (decided in Go rules)']
+  decided_by text [not null, default: 'rules', note: 'rules | human']
+  reasons jsonb [not null, default: '[]']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (enquiry_id, created_at) [name: 'target_offers_enquiry_idx']
+  }
+}
+
+// Government reference (0007_gov_reference). Seed rows are labelled
+// source = 'Demo seed, not real MoPH data'. Read by anyone, written by staff only.
+Table reference_documents {
+  id text [pk, default: `gen_random_uuid()::text`]
+  name text [not null, note: 'original file name']
+  content_type text [not null, note: 'application/pdf | image/png | image/jpeg (sniffed)']
+  size_bytes bigint [not null, note: '>= 0, max 10 MB']
+  sha256 text [not null, note: 'hex sha256 of the file']
+  uploaded_by_staff_id text [not null, note: 'staff.id']
+  storage_path text [not null, note: 'UPLOAD_DIR/reference/<id><ext>; never returned by the API']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (created_at, id) [name: 'reference_documents_created_idx']
+  }
+}
+
+Table gov_products {
+  code text [pk, note: '13 digits']
+  reg_no text [not null]
+  brand_name text [not null]
+  ingredient text [not null, note: 'combined ingredients joined with /']
+  strength text [not null, note: 'e.g. 1000mg, 100mcg']
+  dosage_form text [not null]
+  official_price_cents bigint [not null, note: '>= 0']
+  source text [not null]
+  document_id text [null, ref: > reference_documents.id, note: 'ON DELETE SET NULL']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (ingredient, strength, dosage_form, brand_name) [unique]
+    `lower(ingredient)` [name: 'gov_products_ingredient_idx']
+  }
+}

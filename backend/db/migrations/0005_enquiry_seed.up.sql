@@ -34,3 +34,9 @@ INSERT INTO staff (id, branch_id, full_name, email, pin_hash) VALUES
     ('staff-verdun',    'branch-verdun',    'Pharmacist Verdun (D)',    'd@wassit.demo', '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4'),
     ('staff-byblos',    'branch-byblos',    'Pharmacist Byblos (E)',    'e@wassit.demo', '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4')
 ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO agents (id, name, system_prompt, model) VALUES
+    ('00000000-0000-4000-8000-000000000001', 'Wassit B2B Pharmacy Coordinator',
+     'You are Wassit, an admin coordinator for pharmacists helping coordinate B2B medicine availability enquiries and inventory shield policies across participating branches. Never diagnose, prescribe, or suggest clinical substitutions.',
+     'qwen3.5:35b-a3b')
+ON CONFLICT (id) DO NOTHING;

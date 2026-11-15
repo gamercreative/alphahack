@@ -17,10 +17,15 @@ import (
 type access int
 
 const (
-	staffOnly access = iota // human pharmacists only; agent credential -> 403 agent_forbidden
-	agentOK                 // staff or agent
-	agentOnly               // agent only; staff token -> 403 forbidden
+	staffOnly     access = iota // human pharmacists only; agent credential -> 403 agent_forbidden
+	agentOK                     // staff or agent
+	agentOnly                   // agent only; staff token -> 403 forbidden
+	clientOnly                  // DOSYN clients only; staff -> 403 forbidden, agent -> 403 agent_forbidden
+	staffOrClient               // humans: staff or client; agent -> 403 agent_forbidden
+	anyActor                    // staff, agent or client; the service decides who may see what
 )
+
+// A client token on any staff or agent route gets 403 forbidden.
 
 type actorKey struct{}
 
@@ -38,11 +43,17 @@ func (h *Handlers) auth(level access, fn http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		switch {
-		case level == staffOnly && a.IsAgent():
+		case (level == staffOnly || level == clientOnly || level == staffOrClient) && a.IsAgent():
 			h.fail(w, r, services.AgentForbidden())
 			return
 		case level == agentOnly && !a.IsAgent():
 			h.fail(w, r, services.Forbidden("this route is for the Wassit agent only"))
+			return
+		case level == clientOnly && !a.IsClient():
+			h.fail(w, r, services.Forbidden("this route is for DOSYN clients; log in with POST /api/v1/client/auth/login"))
+			return
+		case (level == staffOnly || level == agentOK) && a.IsClient():
+			h.fail(w, r, services.Forbidden("this route is for pharmacists; client tokens are not accepted here"))
 			return
 		}
 		fn(w, r.WithContext(context.WithValue(r.Context(), actorKey{}, a)))

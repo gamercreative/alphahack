@@ -29,7 +29,7 @@ HANDLERS = ROOT / "backend" / "internal"
 # Fields the UI computes itself or reads from its own demo data, not from the API.
 FRONTEND_ONLY = {"expiry_date"}
 
-CALL_RE = re.compile(r"(apiCall|apiAudio)\(\s*'([A-Z]+)'\s*,\s*([`'])(.*?)\3", re.S)
+CALL_RE = re.compile(r"(apiCall|apiAudio|apiUpload)\(\s*'([A-Z]+)'\s*,\s*([`'])(.*?)\3", re.S)
 ROUTE_RE = re.compile(r'mux\.HandleFunc\("([A-Z]+) ([^"]+)"')
 FIELD_RE = re.compile(
     r"\b(?:detail|enquiry|enq|e|t|tgt|target|m|msg|ev|evt|event|run|r|row|res|me|item|b|branch|"

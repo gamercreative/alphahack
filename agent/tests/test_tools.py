@@ -164,7 +164,7 @@ def test_propose_targets_posts_branch_ids(fake):
     out = enquiry.propose_targets("E1", ["B"])
     assert f.calls == [("POST", "/api/v1/enquiries/E1/targets", {"branch_ids": ["B"]}, None)]
     assert out["proposed"] == [{"target_id": "T9", "branch_id": "B", "status": "proposed"}]
-    assert "Call wait()" in out["note"]
+    assert out["note"].startswith("Stop now") and "Do not call wait()" in out["note"]
 
 
 def test_close_enquiry_passes_409_message_through(fake):

@@ -488,8 +488,14 @@ func (s *EnquiryService) outboxQuestion(ctx context.Context, q queries.Querier, 
 		}
 		what = strings.Join(strings.Fields(m.BrandName+" "+m.Strength+" "+m.DosageForm), " ")
 	}
-	return fmt.Sprintf("Availability enquiry from %s: do you have %s x%d? Reply available, unavailable or alternative.",
-		br.Name, what, e.Quantity), nil
+	pickup := ""
+	if isDesk(e) {
+		if t, err := q.GetClientTicketByEnquiry(ctx, e.ID); err == nil {
+			pickup = " for pickup " + t.PickupWindow
+		}
+	}
+	return fmt.Sprintf("Availability enquiry from %s: do you have %s x%d%s? Reply available, unavailable or alternative, with price and expiry date.",
+		br.Name, what, e.Quantity, pickup), nil
 }
 
 // saveTargetStatus loads a target, sets its status and saves it. Returns the saved row.

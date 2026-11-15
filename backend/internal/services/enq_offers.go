@@ -65,12 +65,22 @@ type OfferRequest struct {
 	Quantity    int
 	TargetState string // enquiry_targets.status after the pharmacist replied
 	ReplyText   string
+
+	// Dose equivalence (CONTRACT rule 1). When GovLookup is set, an offer of a
+	// different strength is checked by EvaluateEquivalence: accepted lifts the
+	// strength block, anything else rejects. With GovLookup nil (no reference to
+	// read) a different strength goes to a human as before.
+	Ingredient string // requested medication's active ingredient
+	DosageForm string // requested medication's dosage form
+	GovLookup  func(ingredient, strength, form string) (GovProduct, bool)
 }
 
 // OfferDecision is the rules' verdict.
 type OfferDecision struct {
 	Decision string   `json:"decision"`
 	Reasons  []string `json:"reasons"`
+	// DoseCheck is set only when a different strength was checked for equivalence.
+	DoseCheck *DoseCheck `json:"dose_check,omitempty"`
 }
 
 func (in *OfferInput) normalize() {
@@ -128,6 +138,16 @@ func EvaluateOffer(req OfferRequest, in OfferInput) OfferDecision {
 	var reject, escalate []string
 	reply := normQuote(req.ReplyText)
 
+	// Dose equivalence for a different strength; equivReason is set only when accepted.
+	dose := offerDoseCheck(req, in)
+	equivReason := ""
+	if dose != nil && dose.Accepted {
+		rv, ru, _ := doseStrength(req.Strength)
+		ov, ou, _ := doseStrength(in.Strength)
+		equivReason = fmt.Sprintf("Rules-checked dose equivalent: %d × %s = %s",
+			dose.UnitsPerDose, formatDoseStrength(ov, ou), formatDoseStrength(rv, ru))
+	}
+
 	// 1. Every field that is set must be backed by a quote that really is in the reply.
 	set := map[string]bool{
 		"in_stock": in.InStock != nil, "strength": in.Strength != "", "quantity": in.Quantity != nil,
@@ -160,7 +180,10 @@ func EvaluateOffer(req OfferRequest, in OfferInput) OfferDecision {
 	// 3. What the pharmacist said with the reply kind.
 	switch req.TargetState {
 	case queries.TargetAlternativeOffered:
-		escalate = append(escalate, "the pharmacist offered an alternative; an alternative is never a match")
+		// A rules-accepted dose equivalent is the one alternative that can match (rule 1).
+		if equivReason == "" {
+			escalate = append(escalate, "the pharmacist offered an alternative; an alternative is never a match")
+		}
 	case queries.TargetUnavailable:
 		// Only "out of stock" agrees with an unavailable reply; any other reading
 		// (in stock, or a quantity with in_stock unset) contradicts the pharmacist.
@@ -191,6 +214,16 @@ func EvaluateOffer(req OfferRequest, in OfferInput) OfferDecision {
 			escalate = append(escalate, fmt.Sprintf("strength %q has no clear unit (mg, mcg or g)", in.Strength))
 		case !okWant:
 			escalate = append(escalate, "the enquiry has no matched medication strength to compare with")
+		case math.Abs(want-got) > 1e-6 && dose != nil:
+			if !dose.Accepted {
+				var failed []string
+				for _, c := range dose.Checks {
+					if !c.OK {
+						failed = append(failed, c.Label)
+					}
+				}
+				reject = append(reject, "Dose equivalent rejected: "+strings.Join(failed, ", "))
+			}
 		case math.Abs(want-got) > 1e-6:
 			escalate = append(escalate, fmt.Sprintf("strength %s differs from the requested %s; a substitution needs prescriber approval", in.Strength, req.Strength))
 		}
@@ -208,11 +241,69 @@ func EvaluateOffer(req OfferRequest, in OfferInput) OfferDecision {
 
 	switch {
 	case len(reject) > 0:
-		return OfferDecision{Decision: queries.OfferRejected, Reasons: append(reject, escalate...)}
+		return OfferDecision{Decision: queries.OfferRejected, Reasons: append(reject, escalate...), DoseCheck: dose}
 	case len(escalate) > 0:
-		return OfferDecision{Decision: queries.OfferEscalated, Reasons: escalate}
+		if equivReason != "" {
+			escalate = append(escalate, equivReason)
+		}
+		return OfferDecision{Decision: queries.OfferEscalated, Reasons: escalate, DoseCheck: dose}
+	case equivReason != "":
+		return OfferDecision{Decision: queries.OfferMatches, DoseCheck: dose,
+			Reasons: []string{equivReason, "every field is quoted from the reply"}}
 	default:
 		return OfferDecision{Decision: queries.OfferMatches, Reasons: []string{"every field is quoted from the reply and matches the request"}}
+	}
+}
+
+// offerDoseCheck runs the dose equivalence rules when the offer's strength is set,
+// both strengths parse, they differ ("1g" equals "1000mg") and a government
+// reference lookup is available. Otherwise it returns nil. The pharmacy is offering
+// the same product line, so ingredient and form are the requested ones.
+func offerDoseCheck(req OfferRequest, in OfferInput) *DoseCheck {
+	if in.Strength == "" || req.GovLookup == nil {
+		return nil
+	}
+	want, okWant := parseStrength(req.Strength)
+	got, okGot := parseStrength(in.Strength)
+	if !okWant || !okGot || math.Abs(want-got) <= 1e-6 {
+		return nil
+	}
+	qty := 0
+	if in.Quantity != nil {
+		qty = *in.Quantity
+	}
+	dc := EvaluateEquivalence(
+		DoseRequest{Ingredient: req.Ingredient, Strength: req.Strength, DosageForm: req.DosageForm, Quantity: req.Quantity},
+		DoseOffer{Ingredient: req.Ingredient, UnitStrength: in.Strength, DosageForm: req.DosageForm, Quantity: qty},
+		req.GovLookup)
+	return &dc
+}
+
+// govLookup reads the government reference through the existing list query
+// (ingredient, strength and form are case-insensitive exact filters). The strength
+// is normalised first so "250 mg" and "0.25g" find "250mg". A store error is kept
+// in *lookupErr and reported as "not listed" so the caller can fail the request.
+func govLookup(ctx context.Context, q queries.Querier, lookupErr *error) func(ingredient, strength, form string) (GovProduct, bool) {
+	return func(ingredient, strength, form string) (GovProduct, bool) {
+		if v, unit, ok := doseStrength(strength); ok {
+			strength = formatDoseStrength(v, unit)
+		}
+		ingredient, strength, form = strings.TrimSpace(ingredient), strings.TrimSpace(strength), strings.TrimSpace(form)
+		if ingredient == "" || strength == "" || form == "" {
+			return GovProduct{}, false
+		}
+		list, err := q.ListGovProducts(ctx, queries.ListGovProductsParams{
+			Ingredient: ingredient, Strength: strength, DosageForm: form, Limit: 1,
+		})
+		if err != nil {
+			*lookupErr = err
+			return GovProduct{}, false
+		}
+		if len(list) == 0 {
+			return GovProduct{}, false
+		}
+		g := list[0]
+		return GovProduct{Code: g.Code, BrandName: g.BrandName, Ingredient: g.Ingredient, Strength: g.Strength, DosageForm: g.DosageForm}, true
 	}
 }
 
@@ -358,17 +449,22 @@ func (s *EnquiryService) RecordOffer(ctx context.Context, a Actor, targetID stri
 			return Conflict("this reply has no text to read an offer from")
 		}
 
-		strength := ""
+		strength, ingredient, form := "", "", ""
 		if e.MedicationID != nil {
 			med, err := q.GetMedication(ctx, *e.MedicationID)
 			if err != nil {
 				return FromStore(err, "medication")
 			}
-			strength = med.Strength
+			strength, ingredient, form = med.Strength, med.ActiveIngredient, med.DosageForm
 		}
+		var lookupErr error
 		d := EvaluateOffer(OfferRequest{
 			Strength: strength, Quantity: e.Quantity, TargetState: t.Status, ReplyText: t.ReplyText,
+			Ingredient: ingredient, DosageForm: form, GovLookup: govLookup(ctx, q, &lookupErr),
 		}, in)
+		if lookupErr != nil {
+			return FromStore(lookupErr, "reference product")
+		}
 
 		evidence, err := json.Marshal(nonNilMap(in.Evidence))
 		if err != nil {
@@ -398,10 +494,14 @@ func (s *EnquiryService) RecordOffer(ctx context.Context, a Actor, targetID stri
 		}, nil); err != nil {
 			return err
 		}
-		if _, err := s.logEvent(ctx, q, e.ID, RulesActor, EvOfferDecided, map[string]any{
+		decided := map[string]any{
 			"offer_id": o.ID, "target_id": t.ID, "branch_id": t.BranchID,
 			"decision": d.Decision, "reasons": d.Reasons,
-		}, nil); err != nil {
+		}
+		if d.DoseCheck != nil {
+			decided["dose_check"] = d.DoseCheck
+		}
+		if _, err := s.logEvent(ctx, q, e.ID, RulesActor, EvOfferDecided, decided, nil); err != nil {
 			return err
 		}
 		out = o

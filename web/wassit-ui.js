@@ -2,11 +2,11 @@
 // Plain script loaded before app.js. Uses app.js globals (escapeHTML, icon, chip, btn, t,
 // language, liveState, liveSession, page, DEMO_BRANCH_PRESETS, branchNameById, buildOfferCardHTML,
 // render, status, loadPublicCatalogue) only at call time, never at load time.
-// Everything that is not a live backend call goes through DemoAdapter (web/wassit-demo.js).
+// All client data comes from LiveClient (web/app.js), which reads and writes the Go backend.
 
 const wzState = { query: '', draft: null, lastSig: '' };
 const wzT = (en, ar) => (language === 'ar' ? ar : en);
-const wzHasDemo = () => typeof DemoAdapter !== 'undefined';
+const wzHasDemo = () => typeof LiveClient !== 'undefined';
 const wzMoney = cents => '$' + (Number(cents || 0) / 100).toFixed(2);
 const wzDays = () => language === 'ar'
   ? ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
@@ -103,8 +103,8 @@ function wzResultsHTML() {
 // ---- Client home: search -------------------------------------------------------------------
 function wzClientHome() {
   if (!wzMeds().length && typeof loadPublicCatalogue === 'function') loadPublicCatalogue();
-  const name = escapeHTML(sessions.client?.name || '');
-  const tickets = wzHasDemo() ? DemoAdapter.listTickets().slice(0, 3) : [];
+  const name = escapeHTML(clientSession?.client?.display_name || '');
+  const tickets = wzHasDemo() ? LiveClient.listTickets().slice(0, 3) : [];
   return '<div class="wz-page">' +
     '<section class="wz-hero">' + wzAvatar('lg') +
       '<div>' + wzNametag() +
@@ -323,8 +323,8 @@ function wzEventHTML(ev, ticket, evs, viewer) {
 function wzTicketStatus(ticket) {
   if (!wzHasDemo()) return ['waiting', ''];
   if (ticket.status === 'reserved') return ['reserved', wzT('Reserved', 'محجوز')];
-  if (DemoAdapter.isWorking(ticket)) return ['working', wzT('Wassit is working', 'وسيط يعمل')];
-  return DemoAdapter.bestOffer(ticket) ? ['done', wzT('Best offer ready', 'أفضل عرض جاهز')] : ['waiting', wzT('Needs a human', 'يحتاج إنساناً')];
+  if (LiveClient.isWorking(ticket)) return ['working', wzT('Wassit is working', 'وسيط يعمل')];
+  return LiveClient.bestOffer(ticket) ? ['done', wzT('Best offer ready', 'أفضل عرض جاهز')] : ['waiting', wzT('Needs a human', 'يحتاج إنساناً')];
 }
 
 function wzTicketRow(ticket) {
@@ -338,10 +338,10 @@ function wzTicketRow(ticket) {
 }
 
 function wzThreadHTML(ticket, viewer) {
-  const evs = viewer === 'client' ? DemoAdapter.events(ticket) : DemoAdapter.branchThread(ticket, viewer);
-  const all = viewer === 'client' ? evs : DemoAdapter.events(ticket);
+  const evs = LiveClient.events(ticket);
+  const all = evs;
   let html = evs.map(ev => wzEventHTML(ev, ticket, all, viewer)).join('');
-  if (viewer === 'client' && DemoAdapter.isWorking(ticket)) {
+  if (viewer === 'client' && LiveClient.isWorking(ticket)) {
     const replied = all.filter(e => ['pharmacy_reply', 'declined'].includes(e.kind)).length;
     html += wzTyping(replied ? wzT('Reading replies and checking them against the rules…', 'أقرأ الردود وأتحقق منها بالقواعد…') : wzT('Contacting pharmacies…', 'أتواصل مع الصيدليات…'));
   }
@@ -349,11 +349,14 @@ function wzThreadHTML(ticket, viewer) {
 }
 
 function wzTicketPage(ticketId) {
-  if (!wzHasDemo()) return '<div class="wz-empty">' + wzT('Demo adapter not loaded.', 'المحاكاة غير محمّلة.') + '</div>';
-  const ticket = DemoAdapter.getTicket(ticketId);
-  if (!ticket) return '<div class="wz-page narrow"><div class="wz-empty">' + wzT('Ticket not found.', 'الطلب غير موجود.') + '</div></div>';
+  if (!wzHasDemo()) return '<div class="wz-empty">' + wzT('Loading…', 'جارٍ التحميل…') + '</div>';
+  const ticket = LiveClient.getTicket(ticketId);
+  if (!ticket || !ticket.thread) {
+    LiveClient.refreshTicket(ticketId).then(() => { if (page[2] === ticketId) wzRefreshDesk(); }).catch(err => status(err.message));
+    if (!ticket) return '<div class="wz-page narrow"><div class="wz-empty">' + wzT('Loading ticket…', 'جارٍ تحميل الطلب…') + '</div></div>';
+  }
   const [cls, label] = wzTicketStatus(ticket);
-  const working = DemoAdapter.isWorking(ticket);
+  const working = LiveClient.isWorking(ticket);
   return '<div class="wz-page narrow">' +
     '<div class="wz-ticket-head card"><div class="row">' + wzAvatar('md', working) +
       '<div><strong>' + escapeHTML(ticket.med.brandName + ' ' + ticket.med.strength + ' ' + ticket.med.form) + ' × ' + ticket.quantity + '</strong>' +
@@ -365,7 +368,7 @@ function wzTicketPage(ticketId) {
 }
 
 function wzTicketsPage() {
-  const list = wzHasDemo() ? DemoAdapter.listTickets() : [];
+  const list = wzHasDemo() ? LiveClient.listTickets() : [];
   return '<div class="wz-page">' +
     '<section class="wz-greet card">' + wzAvatar('md') + '<div class="wz-bubble"><p>' +
       wzT('Every request gets a ticket. Open one to see each pharmacy’s answer and who decided what: the rules, a human, or the pharmacy.',
@@ -378,7 +381,7 @@ function wzTicketsPage() {
 
 // ---- Scheduled medicines -------------------------------------------------------------------
 function wzSchedulesPage() {
-  const list = wzHasDemo() ? DemoAdapter.listSchedules() : [];
+  const list = wzHasDemo() ? LiveClient.listSchedules() : [];
   const short = language === 'ar' ? wzDays() : ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
   return '<div class="wz-page">' +
     '<section class="wz-greet card">' + wzAvatar('md') + '<div class="wz-bubble"><p>' +
@@ -386,8 +389,8 @@ function wzSchedulesPage() {
           'للأدوية التي تحتاجها في يوم ثابت ولا يمكنك شراؤها بالجملة. أفتح طلباً جديداً في كل دورة وأبحث من جديد.') + '</p></div></section>' +
     '<h2 class="wz-section-title">' + wzT('Scheduled medicines', 'الأدوية المجدولة') + ' (' + list.length + ')</h2>' +
     (list.length ? '<div class="wz-schedules">' + list.map(s => {
-      const next = DemoAdapter.nextRun(s);
-      const tickets = s.ticketIds.map(id => DemoAdapter.getTicket(id)).filter(Boolean).reverse();
+      const next = LiveClient.nextRun(s);
+      const tickets = s.ticketIds.map(id => LiveClient.getTicket(id)).filter(Boolean).reverse();
       return '<article class="wz-schedule card">' +
         '<div class="row"><span class="wz-cal"><span>' + escapeHTML(short[s.day]) + '</span></span>' +
           '<div><strong>' + escapeHTML(s.med.brandName + ' ' + s.med.strength) + '</strong>' +
@@ -412,7 +415,7 @@ function wzPharmGreet() {
   const branchId = liveSession?.branch?.id;
   const waiting = (liveState.inboxItems || []).filter(i => i.target_status === 'sent' || i.target_status === 'no_response').length;
   const hitl = (liveState.outgoingEnquiries || []).filter(e => e.status === 'awaiting_clarification' || e.status === 'awaiting_approval').length;
-  const clientWaiting = wzHasDemo() && branchId ? DemoAdapter.ticketsForBranch(branchId).filter(tk => !DemoAdapter.branchThread(tk, branchId).some(e => e.branchId === branchId && ['pharmacy_reply', 'declined'].includes(e.kind))).length : 0;
+  const clientWaiting = wzHasDemo() && branchId ? LiveClient.clientInbox().filter(item => item.target_status === 'sent' || item.target_status === 'no_response').length : 0;
   const hour = new Date().getHours();
   const hello = hour < 12 ? wzT('Good morning', 'صباح الخير') : hour < 18 ? wzT('Good afternoon', 'مساء الخير') : wzT('Good evening', 'مساء الخير');
   return '<section class="wz-greet card">' + wzAvatar('md', waiting + clientWaiting > 0) +
@@ -429,57 +432,30 @@ function wzPharmGreet() {
 }
 
 function wzPharmTicketsPage() {
-  const branchId = liveSession?.branch?.id;
-  const list = wzHasDemo() && branchId ? DemoAdapter.ticketsForBranch(branchId) : [];
+  const list = wzHasDemo() ? LiveClient.clientInbox() : [];
   return '<div class="wz-page">' + wzPharmGreet() +
-    '<div class="demo-sim-banner"><div>' + chip('Demo adapter', 'demo-badge') + ' ' +
-      wzT('Client tickets run on the demo adapter until the backend routes exist (Phase 3).', 'طلبات العملاء تعمل على المحاكاة حتى تتوفر مسارات الخادم (المرحلة 3).') + '</div></div>' +
     '<h2 class="wz-section-title">' + wzT('Client tickets for', 'طلبات العملاء لـ') + ' ' + escapeHTML(wzShortName(liveSession?.branch?.name || '')) + ' (' + list.length + ')</h2>' +
-    (list.length ? '<div class="wz-tickets">' + list.map(wzTicketRow).join('') + '</div>'
-      : '<div class="wz-empty">' + wzT('No client tickets yet. Open the client view, search a medicine and send it.', 'لا توجد طلبات عملاء بعد. افتح واجهة العميل وأرسل طلباً.') + '</div>') +
+    '<p class="caption">' + wzT('Requests Wassit sent you on behalf of a client (identity hidden). Reply in your own words; Wassit reads it and the rules decide. Then add a package photo with the code and expiry you see on the box.',
+      'طلبات أرسلها وسيط نيابة عن عميل (الهوية مخفية). رد بكلماتك؛ وسيط يقرأ والقواعد تقرر. ثم أضف صورة العلبة مع الرمز وتاريخ الصلاحية.') + '</p>' +
+    (list.length ? '<div class="stack">' + list.map(item =>
+      renderInboxItemCard(item) +
+      '<form class="form wz-form wz-photo-form card" data-target-id="' + escapeHTML(item.target_id) + '" style="margin-top:8px">' +
+        '<div class="row split"><strong>' + wzT('Package photo', 'صورة العلبة') + '</strong>' +
+          (item.pickup_window ? chip(wzT('Pickup', 'الاستلام') + ': ' + escapeHTML(item.pickup_window), 'info') : '') + '</div>' +
+        '<div class="inbox-reply-grid">' +
+          '<label class="field">' + wzT('Photo', 'الصورة') + '<input type="file" name="photo" accept="image/png,image/jpeg" required></label>' +
+          '<label class="field">' + wzT('Product code on the box', 'رمز المنتج على العلبة') + '<input name="code" inputmode="numeric" maxlength="20" required placeholder="6280000000001"></label>' +
+          '<label class="field">' + wzT('Expiry (YYYY-MM)', 'الصلاحية (YYYY-MM)') + '<input name="expiry_month" pattern="\\d{4}-\\d{2}" maxlength="7" required placeholder="2027-08"></label>' +
+          '<button class="btn secondary small" type="submit">' + wzT('Upload', 'رفع') + '</button>' +
+        '</div>' +
+        '<p class="caption">' + wzT('Go checks the code against the government reference and the expiry against the pickup window. A photo alone does not prove a box is genuine; unclear photos go to a human reviewer.',
+          'يتحقق النظام من الرمز مقابل المرجع الحكومي والصلاحية مقابل وقت الاستلام. الصورة وحدها لا تثبت أن العلبة أصلية؛ الصور غير الواضحة تذهب لمراجع بشري.') + '</p>' +
+      '</form>').join('') + '</div>'
+      : '<div class="wz-empty">' + wzT('No client tickets for this branch yet.', 'لا توجد طلبات عملاء لهذا الفرع بعد.') + '</div>') +
   '</div>';
 }
 
-function wzPharmTicketPage(ticketId) {
-  const branchId = liveSession?.branch?.id;
-  const ticket = wzHasDemo() ? DemoAdapter.getTicket(ticketId) : null;
-  if (!ticket || !branchId) return '<div class="wz-page narrow"><div class="wz-empty">' + wzT('Ticket not found.', 'الطلب غير موجود.') + '</div></div>';
-  const liveStock = (liveState.branchInventory || []).length ? availableStockForMed(ticket.med.id) : null;
-  const stockNow = liveStock !== null ? liveStock : DemoAdapter.getStock(branchId, ticket.med.id);
-  const q = ticket.quantity;
-  const price = (ticket.med.unitPriceCents / 100 * 0.9).toFixed(0);
-  return '<div class="wz-page narrow">' +
-    '<div class="wz-ticket-head card"><div class="row">' + wzAvatar('md') +
-      '<div><strong>' + escapeHTML(ticket.med.brandName + ' ' + ticket.med.strength + ' ' + ticket.med.form) + ' × ' + q + '</strong>' +
-      '<p>' + wzT('Client ticket', 'طلب عميل') + ' ' + escapeHTML(ticket.id.slice(0, 8)) + ' · ' + escapeHTML(ticket.pickup) + ' · ' + wzT('identity hidden', 'الهوية مخفية') + '</p></div></div>' +
-      '<a class="btn secondary small" href="#pharmacist/requests">' + wzT('← All client tickets', '→ كل طلبات العملاء') + '</a></div>' +
-    '<div class="wz-chat" id="wz-thread" data-ticket="' + escapeHTML(ticket.id) + '" data-viewer="' + escapeHTML(branchId) + '" aria-live="polite">' + wzThreadHTML(ticket, branchId) + '</div>' +
-    '<section class="card" style="margin-top:16px">' +
-      '<div class="row split"><strong>' + wzT('Reply in your own words', 'رد بكلماتك') + '</strong>' +
-        '<span class="caption">' + wzT('Your stock', 'مخزونك') + ': <strong>' + (stockNow === null ? '—' : stockNow) + '</strong></span></div>' +
-      wzChips([
-        ['eh 3ande ' + q + ' 3elab, ' + price + '$ el 3elbe, expiry 09/2027', wzT('In stock, price + expiry', 'متوفر، السعر والصلاحية')],
-        ['la2 ma 3ande', wzT('Not in stock', 'غير متوفر')],
-        ['3ande bas ma ba3ref el expiry', wzT('In stock, no expiry', 'متوفر، بدون صلاحية')]
-      ], 'wz-fill') +
-      '<form class="wz-composer wz-form" id="wz-reply-form" data-ticket="' + escapeHTML(ticket.id) + '">' +
-        '<input name="text" id="wz-reply-text" dir="auto" maxlength="500" required placeholder="' + wzT('e.g. eh 3ande 2 3elab, 11$, exp 09/2027', 'مثلاً: عندي علبتين، 11$، صلاحية 09/2027') + '">' +
-        '<button class="btn" type="submit">' + wzT('Send', 'إرسال') + '</button>' +
-      '</form>' +
-      '<form class="form wz-form" id="wz-photo-form" data-ticket="' + escapeHTML(ticket.id) + '" style="margin-top:12px">' +
-        '<label class="field">' + wzT('Package photo (barcode and expiry visible)', 'صورة العلبة (الباركود والصلاحية واضحان)') +
-          '<input type="file" name="photo" accept="image/*" required></label>' +
-        '<p class="caption">' + wzT('The system reads the barcode against the government reference and the expiry date. A photo alone does not prove a box is genuine; unclear photos go to a human.',
-          'يقرأ النظام الباركود مقابل المرجع الحكومي وتاريخ الصلاحية. الصورة وحدها لا تثبت أن العلبة أصلية؛ الصور غير الواضحة تذهب لإنسان.') + '</p>' +
-        '<button class="btn secondary small" type="submit">' + wzT('Upload photo', 'رفع الصورة') + '</button>' +
-      '</form>' +
-      '<form class="row wz-form" id="wz-stock-form" data-med="' + escapeHTML(ticket.med.id) + '" style="margin-top:12px">' +
-        '<label class="field" style="flex:1">' + wzT('Update my stock for this medicine (demo)', 'حدّث مخزوني لهذا الدواء (تجريبي)') +
-          '<input type="number" name="qty" min="0" max="9999" value="' + (stockNow ?? '') + '" required></label>' +
-        '<button class="btn secondary small" type="submit">' + wzT('Save stock', 'حفظ المخزون') + '</button>' +
-      '</form>' +
-    '</section></div>';
-}
+function wzPharmTicketPage() { return wzPharmTicketsPage(); }
 
 function wzReferencePage() {
   if (liveState.govReference === undefined && typeof loadGovReference === 'function') {
@@ -487,8 +463,9 @@ function wzReferencePage() {
     loadGovReference().then(rows => { if (rows && page[1] === 'reference') wzRefreshDesk(); });
   }
   const live = Array.isArray(liveState.govReference) && liveState.govReference.length;
-  const rows = live ? liveState.govReference : (wzHasDemo() ? DemoAdapter.govReference() : []);
-  const docs = wzHasDemo() ? DemoAdapter.listReferenceDocs() : [];
+  const rows = live ? liveState.govReference : [];
+  if (!LiveClient.refDocsLoaded && liveSession?.token) { LiveClient.refDocsLoaded = true; LiveClient.refreshReferenceDocs().then(() => { if (page[1] === 'reference') wzRefreshDesk(); }).catch(() => {}); }
+  const docs = LiveClient.listReferenceDocs();
   return '<div class="wz-page">' +
     '<section class="wz-greet card">' + wzAvatar('md') + '<div class="wz-bubble"><p>' +
       wzT('The rules compare every dose equivalent and box photo against this reference. Upload an official price list or leaflet to add to it.',
@@ -497,7 +474,7 @@ function wzReferencePage() {
     '<form class="row wz-form" id="wz-doc-form" style="margin:14px 0">' +
       '<label class="field" style="flex:1">' + wzT('Official document (PDF or image)', 'مستند رسمي (PDF أو صورة)') + '<input type="file" name="doc" accept="application/pdf,image/*" required></label>' +
       '<button class="btn secondary small" type="submit">' + wzT('Upload', 'رفع') + '</button></form>' +
-    (docs.length ? '<ul class="wz-history">' + docs.map(dc => '<li>' + escapeHTML(dc.name) + ' · ' + escapeHTML(dc.status) + '</li>').join('') + '</ul>' : '') +
+    (docs.length ? '<ul class="wz-history">' + docs.map(dc => '<li>' + escapeHTML(dc.name) + ' · ' + wzWhen(dc.addedAt) + '</li>').join('') + '</ul>' : '') +
     '<div class="wz-table-wrap"><table class="wz-table"><thead><tr><th>' + wzT('Code', 'الرمز') + '</th><th>' + wzT('Product', 'المنتج') + '</th><th>' + wzT('Ingredient', 'المادة') + '</th><th>' + wzT('Form', 'الشكل') + '</th><th>' + wzT('Official price', 'السعر الرسمي') + '</th></tr></thead><tbody>' +
       rows.map(rw => '<tr><td><code>' + escapeHTML(rw.code) + '</code></td><td>' + escapeHTML(rw.brandName + ' ' + rw.strength) + '</td><td>' + escapeHTML(rw.ingredient) + '</td><td>' + escapeHTML(rw.form) + '</td><td>' + wzMoney(rw.officialPriceCents) + '</td></tr>').join('') +
     '</tbody></table></div></div>';
@@ -513,55 +490,58 @@ function wzScrollThread() {
   last?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const el = e.target.closest('[data-action^="wz-"]');
   if (!el) return;
   const [action, key, value] = el.dataset.action.split(':');
   const d = wzState.draft;
-  switch (action) {
-    case 'wz-pick':
-      wzState.draft = null;
-      location.hash = 'client/chat/' + key;
-      return;
-    case 'wz-qty': d.quantity = Number(key); d.step = 'mode'; break;
-    case 'wz-mode':
-      if (key === 'once') { d.mode = 'once'; d.step = 'pickup'; } else { d.mode = 'scheduled'; d.every = key; d.step = 'day'; }
-      break;
-    case 'wz-day': d.day = Number(key); d.step = 'pickup'; break;
-    case 'wz-pickup': d.pickup = el.dataset.action.split(':').slice(1).join(':'); d.step = 'confirm'; break;
-    case 'wz-restart': wzState.draft = null; break;
-    case 'wz-send': {
-      const m = wzMeds().find(x => x.id === d.medId);
-      if (!m || !wzHasDemo()) return;
-      const med = DemoAdapter.medFromApi(m);
-      let ticket;
-      if (d.mode === 'scheduled') {
-        const sched = DemoAdapter.createSchedule({ med, quantity: d.quantity, every: d.every, day: d.day, pickup: d.pickup });
-        ticket = DemoAdapter.runSchedule(sched.id, wzBranches());
-      } else {
-        ticket = DemoAdapter.createTicket({ med, quantity: d.quantity, mode: 'once', pickup: d.pickup, branches: wzBranches() });
+  try {
+    switch (action) {
+      case 'wz-pick':
+        wzState.draft = null;
+        location.hash = 'client/chat/' + key;
+        return;
+      case 'wz-qty': d.quantity = Number(key); d.step = 'mode'; break;
+      case 'wz-mode':
+        if (key === 'once') { d.mode = 'once'; d.step = 'pickup'; } else { d.mode = 'scheduled'; d.every = key; d.step = 'day'; }
+        break;
+      case 'wz-day': d.day = Number(key); d.step = 'pickup'; break;
+      case 'wz-pickup': d.pickup = el.dataset.action.split(':').slice(1).join(':'); d.step = 'confirm'; break;
+      case 'wz-restart': wzState.draft = null; break;
+      case 'wz-send': {
+        const m = wzMeds().find(x => x.id === d.medId);
+        if (!m) return;
+        el.disabled = true;
+        const med = LiveClient.medFromApi(m);
+        let ticket;
+        if (d.mode === 'scheduled') {
+          const sched = await LiveClient.createSchedule({ med, quantity: d.quantity, every: d.every, day: d.day, pickup: d.pickup });
+          ticket = await LiveClient.runSchedule(sched.id);
+        } else {
+          ticket = await LiveClient.createTicket({ med, quantity: d.quantity, pickup: d.pickup });
+        }
+        wzState.draft = null;
+        status(wzT('Request sent to pharmacies', 'تم إرسال الطلب إلى الصيدليات'));
+        location.hash = 'client/ticket/' + ticket.id;
+        return;
       }
-      wzState.draft = null;
-      status(wzT('Request sent to pharmacies', 'تم إرسال الطلب إلى الصيدليات'));
-      location.hash = 'client/ticket/' + ticket.id;
-      return;
+      case 'wz-reserve':
+        await LiveClient.reserve(key, value);
+        status(wzT('Reserved', 'تم الحجز'));
+        break;
+      case 'wz-run': {
+        const ticket = await LiveClient.runSchedule(key);
+        location.hash = 'client/ticket/' + ticket.id;
+        return;
+      }
+      case 'wz-pause': await LiveClient.togglePause(key); break;
+      default: return;
     }
-    case 'wz-reserve':
-      DemoAdapter.reserve(key, value);
-      status(wzT('Reserved', 'تم الحجز'));
-      break;
-    case 'wz-run': {
-      const ticket = DemoAdapter.runSchedule(key, wzBranches());
-      location.hash = 'client/ticket/' + ticket.id;
-      return;
-    }
-    case 'wz-pause': DemoAdapter.togglePause(key); break;
-    case 'wz-fill': {
-      const input = document.getElementById('wz-reply-text');
-      if (input) { input.value = el.dataset.action.split(':').slice(1).join(':'); input.focus(); }
-      return;
-    }
-    default: return;
+  } catch (err) {
+    el.disabled = false;
+    status(err.message);
+    alert(err.message);
+    return;
   }
   wzRefreshDesk();
   wzScrollThread();
@@ -574,74 +554,50 @@ document.addEventListener('input', e => {
   if (box) box.innerHTML = wzResultsHTML();
 });
 
-document.addEventListener('submit', e => {
+document.addEventListener('submit', async e => {
   const form = e.target;
   if (!form.classList.contains('wz-form')) return;
   e.preventDefault();
-  const branchId = liveSession?.branch?.id;
-  switch (form.id) {
-    case 'wz-search-form': {
+  const fd = new FormData(form);
+  try {
+    if (form.id === 'wz-search-form') {
       const box = document.getElementById('wz-results');
       if (box) box.innerHTML = wzResultsHTML();
       return;
     }
-    case 'wz-reply-form': {
-      const text = String(new FormData(form).get('text') || '').trim();
-      if (!text || !branchId) return;
-      DemoAdapter.pharmacyReply(form.dataset.ticket, branchId, text);
-      status(wzT('Reply sent to Wassit', 'تم إرسال الرد'));
-      break;
+    if (form.classList.contains('wz-photo-form')) {
+      const res = await LiveClient.pharmacyPhoto(form.dataset.targetId, fd.get('photo'), String(fd.get('code') || '').trim(), String(fd.get('expiry_month') || '').trim());
+      status(wzT('Photo checked: ', 'تم فحص الصورة: ') + (res?.status || ''));
+      alert(wzT('Photo result: ', 'نتيجة الصورة: ') + (res?.status || '') + (res?.note ? ' · ' + res.note : ''));
+    } else if (form.id === 'wz-stock-form') {
+      await LiveClient.setStock(form.dataset.med, Number(fd.get('qty')));
+      status(wzT('Stock saved on the backend', 'تم حفظ المخزون في الخادم'));
+    } else if (form.id === 'wz-doc-form') {
+      await LiveClient.addReferenceDoc(fd.get('doc'));
+      status(wzT('Document uploaded', 'تم رفع المستند'));
+    } else {
+      return;
     }
-    case 'wz-photo-form': {
-      const file = new FormData(form).get('photo');
-      if (!file || !file.name || !branchId) return;
-      DemoAdapter.pharmacyPhoto(form.dataset.ticket, branchId, file.name);
-      status(wzT('Photo checked', 'تم فحص الصورة'));
-      break;
-    }
-    case 'wz-stock-form': {
-      const qty = Number(new FormData(form).get('qty'));
-      if (!branchId || !Number.isFinite(qty)) return;
-      DemoAdapter.setStock(branchId, form.dataset.med, qty);
-      if (typeof saveLiveStock === 'function') {
-        saveLiveStock(form.dataset.med, qty)
-          .then(() => { status(wzT('Stock saved on the backend', 'تم حفظ المخزون في الخادم')); wzRefreshDesk(); })
-          .catch(err => status(wzT('Stock not saved: ', 'لم يتم حفظ المخزون: ') + err.message));
-        return;
-      }
-      status(wzT('Stock saved', 'تم حفظ المخزون'));
-      break;
-    }
-    case 'wz-doc-form': {
-      const file = new FormData(form).get('doc');
-      if (!file || !file.name) return;
-      DemoAdapter.addReferenceDoc({ name: file.name, size: file.size, type: file.type });
-      break;
-    }
-    default: return;
+  } catch (err) {
+    status(err.message);
+    alert(err.message);
+    return;
   }
   wzRefreshDesk();
-  wzScrollThread();
 });
 
-// Live ticket updates: re-render the thread only when its visible events change.
+// Live ticket updates: re-render the client thread only when its visible events change.
 setInterval(() => {
   const thread = document.getElementById('wz-thread');
   if (!thread || !wzHasDemo()) return;
-  const ticket = DemoAdapter.getTicket(thread.dataset.ticket);
+  const ticket = LiveClient.getTicket(thread.dataset.ticket);
   if (!ticket) return;
-  const viewer = thread.dataset.viewer;
-  const evs = viewer === 'client' ? DemoAdapter.events(ticket) : DemoAdapter.branchThread(ticket, viewer);
-  const sig = ticket.id + '|' + evs.length + '|' + DemoAdapter.isWorking(ticket) + '|' + ticket.status + '|' + language;
+  const evs = LiveClient.events(ticket);
+  const sig = ticket.id + '|' + evs.length + '|' + LiveClient.isWorking(ticket) + '|' + ticket.status + '|' + language;
   if (sig === wzState.lastSig) return;
   const first = !wzState.lastSig.startsWith(ticket.id + '|');
   wzState.lastSig = sig;
   if (first) return;
-  const active = document.activeElement;
-  if (active && active.closest?.('form') && ['INPUT', 'TEXTAREA'].includes(active.tagName) && active.value) {
-    thread.innerHTML = wzThreadHTML(ticket, viewer);
-  } else {
-    wzRefreshDesk();
-  }
+  wzRefreshDesk();
   wzScrollThread();
 }, 700);

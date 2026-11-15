@@ -13,8 +13,6 @@ HANDLERS = ROOT / "backend" / "internal" / "handlers"
 OPENAPI = ROOT / "backend" / "openapi.yaml"
 CONTRACT = ROOT / "CONTRACT.md"
 
-EXPECTED_CODE_ROUTES = 63
-
 GUARDED_PREFIXES = (
     "/api/v1/enquiries",
     "/api/v1/targets",
@@ -122,8 +120,19 @@ def expected_auth(who):
 # ---------------------------------------------------------------- 1
 
 
-def test_code_has_63_routes():
-    assert len(code_routes()) == EXPECTED_CODE_ROUTES
+def test_code_and_openapi_routes_match():
+    """No hardcoded count: the code and openapi.yaml must list the same (method, path) set."""
+    code = {(m, norm(p)) for (m, p) in code_routes()}
+    spec = {(m, norm(p)) for (m, p) in openapi_routes()}
+    assert code, "no HandleFunc registrations parsed from backend/internal/handlers/*.go"
+    assert spec, "no path+method parsed from backend/openapi.yaml"
+    only_code = sorted(f"{m} {p}" for m, p in code - spec)
+    only_spec = sorted(f"{m} {p}" for m, p in spec - code)
+    assert not only_code and not only_spec, (
+        f"routes differ ({len(code)} in code, {len(spec)} in openapi.yaml)\n"
+        f"  in code but not in openapi.yaml ({len(only_code)}):\n    " + "\n    ".join(only_code or ["-"]) + "\n"
+        f"  in openapi.yaml but not in code ({len(only_spec)}):\n    " + "\n    ".join(only_spec or ["-"])
+    )
 
 
 # ---------------------------------------------------------------- 2

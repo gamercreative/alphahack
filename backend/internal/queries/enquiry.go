@@ -165,7 +165,7 @@ func scanInboxItem(r rowScanner) (InboxItem, error) {
 	err := r.Scan(
 		&it.TargetID, &it.TargetStatus, &it.FollowUps, &it.EnquiryID, &it.RequesterBranchID,
 		&it.RequesterBranchName, &it.MedicationID, &it.MedicationName, &it.RawRequest,
-		&it.Quantity, &it.SentAt,
+		&it.Quantity, &it.SentAt, &it.RequesterKind, &it.PickupWindow,
 	)
 	return it, err
 }

@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 from typing import Annotated, Literal
 from urllib.parse import quote
@@ -83,6 +84,41 @@ def _compute_enquiry_policy_flags(detail: dict, targets: list[dict]) -> list[str
     return flags
 
 
+REPLIED_STATUSES = ("available", "unavailable", "alternative_offered")
+NOT_A_MATCH = ("escalated", "rejected")
+CLIENT_DESK_BRANCH = "branch-client-desk"  # the client reserves the offer; the agent never closes these as available
+_STRENGTH_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(mcg|mg|g|ml)\b", re.IGNORECASE)
+_TO_MG = {"mcg": 0.001, "mg": 1.0, "g": 1000.0}
+
+
+def _strengths(text) -> list[tuple[str, float, str]]:
+    """Finds strengths in free text as (as written, value, unit), with g and mcg turned into mg."""
+    found = []
+    for number, unit in _STRENGTH_RE.findall(str(text or "")):
+        unit = unit.lower()
+        value = float(number.replace(",", "."))
+        if unit in _TO_MG:
+            value, unit = value * _TO_MG[unit], "mg"
+        found.append((f"{number}{unit if unit != 'mg' else 'mg'}", value, unit))
+    return found
+
+
+def _other_strength(medication, reply_text) -> str | None:
+    """Returns the first strength named in the reply that differs from the requested one, or None."""
+    wanted = {(v, u) for _, v, u in _strengths(medication)}
+    if not wanted:
+        return None
+    for written, value, unit in _strengths(reply_text):
+        if (value, unit) not in wanted:
+            return written
+    return None
+
+
+def _needs_offer(target: dict) -> bool:
+    return (target.get("status") in REPLIED_STATUSES and bool(str(target.get("reply_text") or "").strip())
+            and not target.get("offer"))
+
+
 def _next_step(out: dict, messages: list) -> str:
     """Computes the next allowed step from the state (code decides what is allowed; the model decides)."""
     status = out.get("status")
@@ -91,21 +127,63 @@ def _next_step(out: dict, messages: list) -> str:
         return "Nothing to do: the enquiry is closed."
     if status == "awaiting_clarification":
         return "Waiting for the requester's answer: call wait(5)."
+    if not out.get("medication") and out.get("client_desk"):
+        return ("Identify the medicine: search_medications, then set_medication if exactly one strength/form matches; otherwise "
+                "ask_requester about the medicine only (strength, form, quantity). Never ask who the client is.")
     if not out.get("medication"):
         return "Identify the medicine: search_medications, then set_medication if exactly one strength/form matches; otherwise ask_requester."
     if not targets:
-        return "find_candidates, then propose_targets with the 3 best candidates, then wait(5)."
-    avail = [t for t in targets if t["status"] == "available"]
+        return "find_candidates, then propose_targets with the 3 best candidates, then stop: the requester must approve them (do not call wait)."
+    photos = out.get("photos_to_read") or []
+    if photos:
+        return f"read_package_photo(photo_id) for photo {photos[0]}: the rules check the typed code and expiry; a photo alone proves nothing."
+    unread = [t for t in targets if _needs_offer(t)]
+    if unread:
+        t = unread[0]
+        step = (f"record_offer for target {t['target_id']} ({t.get('pharmacy')}): read the reply into fields with exact quotes; "
+                "the rules decide.")
+        other = _other_strength(out.get("medication"), t.get("reply_text"))
+        if other:
+            step += (f" The reply names {other}, not the requested strength: call check_reference(ingredient, '{other}', form) "
+                     "first (information only).")
+        return step
+    if status == "awaiting_approval":
+        return "Stop now: the requester must approve the proposed pharmacies. Do not call wait(); end this run with a one-line summary."
+    avail = [t for t in targets if t["status"] == "available" and t.get("offer") not in NOT_A_MATCH]
+    notified = " ".join(m.get("body", "") for m in messages if m.get("kind") == "notification")
+    if out.get("client_desk"):
+        # Contract rule 6/11: a client ticket closes 'available' only at a branch with a verified offer; Go enforces it.
+        unverified = [t for t in avail if t.get("offer") != "matches"]
+        avail = [t for t in avail if t.get("offer") == "matches"]
+        if avail:
+            return (f"{avail[0]['pharmacy']} has a rules-accepted offer: close_enquiry outcome 'available' with branch_id "
+                    f"{avail[0].get('branch_id')}. Go accepts it only if the offer is verified; if it refuses, "
+                    "notify_requester in plain words (no advice, no other medicine) and wait(5).")
+        fresh = [t for t in unverified if (t.get("pharmacy") or "") not in notified]
+        if fresh:
+            return (f"{fresh[0]['pharmacy']} says it has it but there is no verified offer yet: notify_requester on the client "
+                    f"ticket naming {fresh[0]['pharmacy']} in plain words (no advice, no other medicine), then wait(5). "
+                    "Do NOT close as available.")
     if avail:
         return f"A pharmacy replied available: close_enquiry outcome 'available' with branch_id of {avail[0]['pharmacy']} (branch_id {avail[0].get('branch_id')})."
     if any(t["status"] == "approved" for t in targets):
         return "The requester approved targets: call send_enquiries now, then wait(5)."
     if any(t["status"] == "proposed" for t in targets):
-        return "Waiting for the requester to approve the proposed pharmacies: call wait(5)."
-    notified = " ".join(m.get("body", "") for m in messages if m.get("kind") == "notification")
+        return "Stop now: the requester must approve the proposed pharmacies. Do not call wait(); end this run with a one-line summary."
+    after = _after_replies(targets)
     alt = [t for t in targets if t["status"] == "alternative_offered" and (t.get("pharmacy") or "") not in notified]
+    if alt and alt[0].get("offer") == "matches":
+        return (f"The rules checked the offer from {alt[0]['pharmacy']} ({alt[0].get('reply_text')}) as a dose equivalent: "
+                f"notify_requester naming {alt[0]['pharmacy']} and what they offer. Do NOT close as available "
+                "on an alternative. Then, in the same run: " + after)
     if alt:
-        return f"{alt[0]['pharmacy']} offered an alternative ({alt[0].get('reply_text')}). It is NOT a match: notify_requester naming {alt[0]['pharmacy']}, then continue."
+        return (f"{alt[0]['pharmacy']} offered an alternative ({alt[0].get('reply_text')}). It is NOT a match: "
+                f"notify_requester naming {alt[0]['pharmacy']}. Then, in the same run: " + after)
+    return after
+
+
+def _after_replies(targets: list) -> str:
+    """The step once every reply is read and reported: chase silent pharmacies, then close."""
     pending = [t for t in targets if t["status"] == "sent"]
     if pending:
         undelivered = [t for t in pending if t.get("message") != "sent"]
@@ -114,14 +192,45 @@ def _next_step(out: dict, messages: list) -> str:
         no_fu = [t for t in pending if t.get("follow_ups", 0) == 0]
         if no_fu:
             return "Still silent: follow_up " + ", ".join(t["target_id"] for t in no_fu) + " (once each), then wait(5)."
+        ids = ", ".join(t["target_id"] for t in pending)
         return ("Followed up already. If you have not waited since the follow-up, call wait(5) now. If this run was woken by "
-                "the timer after that wait, mark_no_response " + ", ".join(t["target_id"] for t in pending) + ".")
-    if all(t["status"] == "unavailable" for t in targets):
+                f"the timer after that wait, mark_no_response {ids}, then get_enquiry and follow next_step in the same run.")
+    if targets and all(t["status"] == "unavailable" for t in targets):
         return "Every pharmacy replied unavailable: close_enquiry outcome 'unavailable'."
     return "All pharmacies answered or are no_response and none is available: close_enquiry outcome 'unable_to_confirm'."
 
 
-def _compact_enquiry(detail: dict) -> dict:
+def _offer_decisions(enquiry_id, targets_raw: list) -> dict:
+    """Maps target_id to the rules decision of its latest recorded offer. Asks the backend only when a reply has text."""
+    if not any(isinstance(t, dict) and t.get("status") in REPLIED_STATUSES and str(t.get("reply_text") or "").strip()
+               for t in targets_raw):
+        return {}
+    listed = _http.call("GET", _enq(enquiry_id) + "/offers")
+    rows = listed.get("data") if isinstance(listed, dict) else None
+    decisions = {}
+    for row in sorted((r for r in rows or [] if isinstance(r, dict)), key=lambda r: str(r.get("created_at", ""))):
+        decisions[str(row.get("target_id", ""))] = row.get("decision") or "recorded"
+    return decisions
+
+
+PHOTO_DECIDED = ("verified", "flagged", "mismatch", "rejected")
+
+
+def _photos_to_read(detail: dict, targets_raw: list) -> list[str]:
+    """Ids of package photos nobody has read yet (from the detail's photos list, a target's photos, or the photo wake)."""
+    rows = list(detail.get("photos") or [])
+    for t in targets_raw:
+        if isinstance(t, dict):
+            rows += list(t.get("photos") or [])
+    ids = [str(p["id"]) for p in rows if isinstance(p, dict) and p.get("id") and p.get("status") not in PHOTO_DECIDED]
+    wake_photo = detail.get("wake_photo_id")
+    if not ids and wake_photo and detail.get("wake_trigger") == "photo":
+        ids = [str(wake_photo)]
+    return ids[:3]
+
+
+def _compact_enquiry(detail: dict, offers: dict | None = None) -> dict:
+    offers = offers or {}
     messages = [m for m in detail.get("messages", []) or [] if isinstance(m, dict)]
     targets_raw = detail.get("targets", []) or []
     if isinstance(detail.get("enquiry"), dict):  # backend shape: {"enquiry": {...}, "targets": [...], ...}
@@ -143,6 +252,8 @@ def _compact_enquiry(detail: dict) -> dict:
             "follow_ups": t.get("follow_ups", 0),
             "message": _latest_enquiry_message_status(messages, target_id),
         })
+        if offers.get(target_id):
+            targets[-1]["offer"] = offers[target_id]  # the rules decision: matches, escalated or rejected
     out = {
         "enquiry_id": detail.get("id"),
         "status": detail.get("status"),
@@ -155,6 +266,11 @@ def _compact_enquiry(detail: dict) -> dict:
         "outcome": detail.get("outcome") or "",
         "policy_flags": _compute_enquiry_policy_flags(detail, targets),
     }
+    if detail.get("requester_branch_id") == CLIENT_DESK_BRANCH:
+        out["client_desk"] = True  # a client ticket: notify texts go to the client, never ask who they are
+    to_read = _photos_to_read(detail, targets_raw)
+    if to_read:
+        out["photos_to_read"] = to_read
     out["next_step"] = _next_step(out, messages)
     # hard guard: drop trailing targets (and say so) until the result fits the size budget
     omitted = 0
@@ -173,7 +289,8 @@ def get_enquiry(enquiry_id: Annotated[str, "The enquiry id from the trigger"]) -
     error = _http.tool_error(out)
     if error:
         return error
-    return _compact_enquiry(out)
+    enquiry = out.get("enquiry") if isinstance(out.get("enquiry"), dict) else out
+    return _compact_enquiry(out, _offer_decisions(enquiry.get("id") or enquiry_id, out.get("targets", []) or []))
 
 
 @tool
@@ -261,7 +378,7 @@ def propose_targets(
         })
     return {
         "proposed": proposed,
-        "note": "The requester must approve before sending. Call wait().",
+        "note": "Stop now; the requester (or the rules for client-desk tickets) approves the pharmacies. Do not call wait().",
     }
 
 

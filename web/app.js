@@ -55,6 +55,52 @@ function saveLiveSession(session) {
   } catch {}
 }
 
+// ---- Client Session (POST /api/v1/client/auth/login; opaque token, never decoded) ----
+let clientSession = null;
+try {
+  const rawClient = sessionStorage.getItem('wassit-client-session');
+  if (rawClient) {
+    const parsed = JSON.parse(rawClient);
+    if (parsed && typeof parsed.token === 'string' && parsed.token && parsed.client) clientSession = parsed;
+  }
+} catch {}
+function saveClientSession(session) {
+  clientSession = session;
+  try {
+    if (session) sessionStorage.setItem('wassit-client-session', JSON.stringify(session));
+    else sessionStorage.removeItem('wassit-client-session');
+  } catch {}
+}
+
+// ---- Multipart Upload Helper (photos, reference documents) --------------------
+async function apiUpload(method, path, formData, as = 'staff') {
+  const token = as === 'client' ? clientSession?.token : liveSession?.token;
+  if (!token) {
+    const err = new Error('Please log in first.');
+    err.status = 401;
+    throw err;
+  }
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { method, headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }, body: formData });
+  } catch {
+    const err = new Error(`Cannot reach Wassit backend at ${API_BASE_URL}.`);
+    err.status = 0;
+    throw err;
+  }
+  const rawText = await response.text();
+  let payload = {};
+  try { payload = rawText ? JSON.parse(rawText) : {}; } catch { payload = { raw: rawText }; }
+  if (!response.ok) {
+    const apiErr = payload && typeof payload.error === 'object' ? payload.error : null;
+    const err = new Error(apiErr?.message || `Upload failed (${response.status})`);
+    err.code = apiErr?.code || 'http_error';
+    err.status = response.status;
+    throw err;
+  }
+  return payload;
+}
+
 // ---- Live Pharmacy Office State ---------------------------------------------
 const liveState = {
   loading: false,
@@ -105,15 +151,15 @@ const icon = name => '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" st
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // ---- REST Helper (Go Backend Only, Opaque Bearer Token) ---------------------
-async function apiCall(method, path, body = undefined, requireAuth = true) {
+async function apiCall(method, path, body = undefined, requireAuth = true, as = 'staff') {
   const headers = { 'Accept': 'application/json' };
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
   if (requireAuth) {
-    const token = liveSession?.token;
+    const token = as === 'client' ? clientSession?.token : liveSession?.token;
     if (!token) {
-      const err = new Error('Please log in to a pharmacy branch first.');
+      const err = new Error(as === 'client' ? 'Please log in to your client account first.' : 'Please log in to a pharmacy branch first.');
       err.code = 'unauthorized';
       err.status = 401;
       throw err;
@@ -146,7 +192,10 @@ async function apiCall(method, path, body = undefined, requireAuth = true) {
     const apiErr = payload && typeof payload.error === 'object' && payload.error ? payload.error : null;
     const message = apiErr?.message || (typeof payload.error === 'string' ? payload.error : `Request failed (${response.status})`);
     const code = apiErr?.code || (response.status === 401 ? 'unauthorized' : 'http_error');
-    if (response.status === 401 && requireAuth) {
+    if (response.status === 401 && requireAuth && as === 'client') {
+      saveClientSession(null);
+      if (page[0] === 'client') location.hash = 'login/client';
+    } else if (response.status === 401 && requireAuth) {
       closeLiveSSE();
       saveLiveSession(null);
       status('Session expired or unauthorized. Please log in again.');
@@ -325,8 +374,9 @@ function bar(workspace = false) {
   if (role === 'client') {
     return '<header class="top appbar"><div class="wrap">'+brand+preferences()+
       '<div class="actions">'+
-        chip('Demo / Simulated', 'demo-badge')+
-        '<span class="role-name">'+escapeHTML(sessions.client.name)+'</span>'+
+        chip('<span class="live-pulse"></span> Live', 'live')+
+        '<span class="role-name">'+escapeHTML(clientSession?.client?.display_name || '')+'</span>'+
+        btn(wzT('Sign out','خروج'),'client-logout','ghost small')+
         link(t('Pharmacist view'), 'pharmacist/home', 'secondary small')+
       '</div></div></header>';
   }
@@ -356,7 +406,7 @@ function timeline(stage, demo = false) {
 function landing() {
   return '<div class="dispensary public-site">'+bar()+'<main id="main" class="wrap entry-hall entry-gallery enter" tabindex="-1"><div>'+wzAvatar('lg')+wzNametag()+'<h1>'+wzT('Meet Wassit','تعرّف على وسيط')+'</h1><p>'+wzT('Your AI pharmacist assistant. Wassit asks many pharmacies at once for the medicine you need, reads their answers, checks doses and box photos against the official reference, and brings back the best verified price and expiry.','مساعدك الصيدلي بالذكاء الاصطناعي. يسأل وسيط عدة صيدليات في وقت واحد عن الدواء الذي تحتاجه، يقرأ ردودهم، يتحقق من الجرعات وصور العلب مقابل المرجع الرسمي، ويعيد لك أفضل سعر وصلاحية موثّقين.')+'</p><div class="entry-doors">'+
     '<a class="card entry-door" href="#pharmacist/home">'+tile('shield')+'<div><div class="row">'+chip('<span class="live-pulse"></span> Live Backend', 'live')+'</div><strong>'+wzT('I’m a pharmacist','أنا صيدلي')+'</strong><span>'+wzT('Reply to Wassit’s requests, upload package photos, update stock, ask other pharmacies','رد على طلبات وسيط، ارفع صور العلب، حدّث المخزون، واسأل صيدليات أخرى')+'</span></div>'+icon('arrow')+'</a>'+
-    '<a class="card entry-door" href="#login/client">'+tile('home')+'<div><div class="row">'+chip('Demo / Simulated', 'demo-badge')+'</div><strong>'+wzT('I need a medicine','أحتاج دواءً')+'</strong><span>'+wzT('Search, request once or every week, follow each pharmacy’s answer in your ticket','ابحث، اطلب مرة أو كل أسبوع، وتابع رد كل صيدلية في ملفك')+'</span></div>'+icon('arrow')+'</a>'+
+    '<a class="card entry-door" href="#client/home">'+tile('home')+'<div><div class="row">'+chip('Demo / Simulated', 'demo-badge')+'</div><strong>'+wzT('I need a medicine','أحتاج دواءً')+'</strong><span>'+wzT('Search, request once or every week, follow each pharmacy’s answer in your ticket','ابحث، اطلب مرة أو كل أسبوع، وتابع رد كل صيدلية في ملفك')+'</span></div>'+icon('arrow')+'</a>'+
   '</div><p class="caption">Connected to live Wassit Go API at <code>'+escapeHTML(API_BASE_URL)+'</code></p></div><div class="pill-display" aria-hidden="true"><div class="pill-ring"></div><div class="hero-pill"><i></i><strong>DOSYN</strong></div></div></main></div>';
 }
 
@@ -402,17 +452,19 @@ function auth() {
       '</div></main></div>';
   }
 
-  // Client login / signup (Simulated Local State)
+  // Client login (live: POST /api/v1/client/auth/login, phone + PIN)
   return '<div class="dispensary">'+bar()+'<main id="main" class="entry-account enter" tabindex="-1"><a class="btn secondary" href="#">← Back to entrance</a>'+
     '<div class="card access-card">'+
-      '<div class="row split"><span class="eyebrow">Client account</span>'+chip('Demo / Simulated', 'demo-badge')+'</div>'+
-      '<h1>'+(register?'Client Sign up (Demo)':'Client Login (Demo)')+'</h1>'+
-      '<p>'+(register?'Create a simulated client profile in local browser storage.':'Open the simulated patient portal profile. No password is required.')+'</p>'+
-      '<form class="form" id="auth-form">'+
-        (register?'<label class="field">Name<input name="name" maxlength="45" required></label>':'')+
-        '<button class="btn">'+(register?'Create simulated profile':'Enter simulated client portal')+' '+icon('arrow')+'</button>'+
+      '<div class="row split"><span class="eyebrow">Client account</span>'+chip('<span class="live-pulse"></span> Live backend', 'live')+'</div>'+
+      wzAvatar('md')+'<h1>'+wzT('Sign in to Wassit','سجّل الدخول إلى وسيط')+'</h1>'+
+      '<p>'+wzT('Use your phone number and PIN. Pharmacies never see who you are.','استخدم رقم هاتفك والرمز. الصيدليات لا ترى هويتك أبداً.')+'</p>'+
+      '<form class="form" id="client-login-form">'+
+        '<label class="field">'+wzT('Phone','الهاتف')+'<input name="phone" type="tel" value="+96170000000" required></label>'+
+        '<label class="field">PIN<input name="pin" type="password" value="1234" required></label>'+
+        '<p id="client-login-result" class="verify-result" role="status"></p>'+
+        '<button class="btn">'+wzT('Sign in','دخول')+' '+icon('arrow')+'</button>'+
       '</form>'+
-      '<p class="access-switch">'+(register?'Already have a profile? ':'New to DOSYN? ')+'<a href="#'+(register?'login':'register')+'/'+role+'">'+(register?'Log in':'Sign up')+'</a></p>'+
+      '<p class="caption">'+wzT('Demo account seeded in the database: +96170000000 / PIN 1234.','حساب تجريبي في قاعدة البيانات: +96170000000 / الرمز 1234.')+'</p>'+
     '</div></main></div>';
 }
 
@@ -582,6 +634,163 @@ async function saveLiveStock(medId, quantity) {
   await apiCall('PUT', `/api/v1/branches/${encodeURIComponent(branchId)}/inventory/${encodeURIComponent(medId)}`, { quantity_on_hand: quantity });
   await refreshLivePharmacyData();
 }
+
+// ---- LiveClient: the client-side data source for the Wassit UI (Phase 3B routes) -------
+// Same method names the UI used with the old demo adapter, but every value comes from the Go
+// backend. Getters are synchronous and read a cache; refresh*() and writes call the API.
+const camelKey = k => k.replace(/_([a-z])/g, (_, ch) => ch.toUpperCase());
+function camelDeep(value) {
+  if (Array.isArray(value)) return value.map(camelDeep);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const [k, v] of Object.entries(value)) out[camelKey(k)] = k === 'offer' ? v : camelDeep(v);
+  return out;
+}
+const msOf = iso => { const n = Date.parse(iso || ''); return Number.isNaN(n) ? Date.now() : n; };
+function medSnapFromApi(m) {
+  if (!m) return { id: '', brandName: 'Medicine', ingredient: '', strength: '', form: '', unitPriceCents: 0 };
+  return { id: m.id, brandName: m.brand_name, ingredient: m.active_ingredient, strength: m.strength, form: m.dosage_form, unitPriceCents: m.unit_price_cents };
+}
+function mapThreadRow(row) {
+  const data = camelDeep(row.data || {});
+  if (data.offer) {
+    const o = data.offer;
+    data.offer = { ...o, totalCents: o.total_cents ?? (o.price_cents != null && o.quantity != null ? o.price_cents * o.quantity : null), expiry: o.expiry_month || o.expiry || '', equivalent: Boolean(o.equivalent || data.doseCheck?.accepted) };
+  }
+  if (data.expiryMonth && !data.expiry) data.expiry = data.expiryMonth;
+  if (data.code && !data.barcode) data.barcode = data.code;
+  if (data.govCode && !data.govRef) data.govRef = { code: data.govCode, brandName: '', strength: '' };
+  return { id: row.id, at: msOf(row.at), kind: row.kind, decider: row.decider, branchId: row.branch_id || null, text: row.text || '', textAr: '', data };
+}
+function mapBest(res) {
+  if (!res) return null;
+  return { branchId: res.branch_id, totalCents: res.total_cents, expiry: res.expiry_month || '', offerId: res.offer_id, excluded: (res.excluded || []).map(x => ({ branchId: x.branch_id, reason: x.reason })) };
+}
+function mapTicket(item, detail) {
+  const tk = item.ticket || item;
+  const med = medSnapFromApi(item.medication || detail?.medication);
+  return {
+    id: tk.id, enquiryId: tk.enquiry_id, createdAt: msOf(tk.created_at), med, quantity: tk.quantity ?? item.quantity ?? 1,
+    mode: tk.mode || 'once', scheduleId: tk.schedule_id || null, pickup: tk.pickup_window || '', status: tk.status || 'open',
+    reservedBranchId: tk.reserved_branch_id || null, branches: (item.branches || []).map(b => ({ id: b.id, name: b.name })),
+    working: Boolean(item.working), best: mapBest(item.best_offer), thread: Array.isArray(item.thread) ? item.thread.map(mapThreadRow) : null
+  };
+}
+function mapSchedule(item) {
+  return {
+    id: item.id, med: medSnapFromApi(item.medication), quantity: item.quantity, every: item.every, day: item.weekday,
+    pickup: item.pickup_window, noBulk: item.no_bulk !== false, paused: item.status === 'paused',
+    nextRunAt: msOf(item.next_run_at), ticketIds: item.ticket_ids || [], createdAt: msOf(item.created_at)
+  };
+}
+const LiveClient = {
+  tickets: [], details: new Map(), schedules: [], refDocs: [], error: '',
+  medFromApi: medSnapFromApi,
+  async refreshTickets() {
+    const res = await apiCall('GET', '/api/v1/client/tickets?limit=50', undefined, true, 'client');
+    this.tickets = (res?.data || []).map(item => mapTicket(item));
+    return this.tickets;
+  },
+  async refreshTicket(id) {
+    const detail = await apiCall('GET', `/api/v1/client/tickets/${encodeURIComponent(id)}`, undefined, true, 'client');
+    const tk = mapTicket(detail, detail);
+    this.details.set(id, tk);
+    return tk;
+  },
+  async refreshSchedules() {
+    const res = await apiCall('GET', '/api/v1/client/schedules?limit=50', undefined, true, 'client');
+    this.schedules = (res?.data || []).map(mapSchedule);
+    return this.schedules;
+  },
+  listTickets() { return [...this.tickets].sort((a, b) => b.createdAt - a.createdAt); },
+  getTicket(id) { return this.details.get(id) || this.tickets.find(tk => tk.id === id) || null; },
+  events(tk) { return (this.details.get(tk.id) || tk).thread || []; },
+  isWorking(tk) { return Boolean((this.details.get(tk.id) || tk).working); },
+  bestOffer(tk) { return (this.details.get(tk.id) || tk).best; },
+  async createTicket({ med, quantity, pickup }) {
+    const res = await apiCall('POST', '/api/v1/client/tickets', { medication_id: med.id, quantity, pickup_window: pickup }, true, 'client');
+    const tk = mapTicket(res, res);
+    this.details.set(tk.id, tk);
+    await this.refreshTickets().catch(() => {});
+    return tk;
+  },
+  async reserve(ticketId, branchId) {
+    await apiCall('POST', `/api/v1/client/tickets/${encodeURIComponent(ticketId)}/reserve`, { branch_id: branchId }, true, 'client');
+    return this.refreshTicket(ticketId);
+  },
+  listSchedules() { return this.schedules; },
+  getSchedule(id) { return this.schedules.find(sc => sc.id === id) || null; },
+  nextRun(sc) { return sc.nextRunAt; },
+  async createSchedule({ med, quantity, every, day, pickup }) {
+    const res = await apiCall('POST', '/api/v1/client/schedules', { medication_id: med.id, quantity, every, weekday: day, pickup_window: pickup }, true, 'client');
+    await this.refreshSchedules().catch(() => {});
+    return mapSchedule(res);
+  },
+  async runSchedule(id) {
+    const res = await apiCall('POST', `/api/v1/client/schedules/${encodeURIComponent(id)}/run`, undefined, true, 'client');
+    const tk = mapTicket(res, res);
+    this.details.set(tk.id, tk);
+    await Promise.all([this.refreshTickets(), this.refreshSchedules()]).catch(() => {});
+    return tk;
+  },
+  async togglePause(id) {
+    const sc = this.getSchedule(id);
+    await apiCall('PATCH', `/api/v1/client/schedules/${encodeURIComponent(id)}`, { status: sc?.paused ? 'active' : 'paused' }, true, 'client');
+    return this.refreshSchedules();
+  },
+  // Pharmacist side: client tickets arrive in the live inbox as enquiries from the DOSYN client desk.
+  clientInbox() { return (liveState.inboxItems || []).filter(item => item.requester_kind === 'client'); },
+  async pharmacyReply(targetId, text, kind = 'available', quantity = undefined) {
+    const body = { kind, text };
+    if (quantity !== undefined) body.quantity = quantity;
+    await apiCall('POST', `/api/v1/targets/${encodeURIComponent(targetId)}/reply`, body);
+    await refreshLivePharmacyData();
+  },
+  async pharmacyPhoto(targetId, file, code, expiryMonth) {
+    const fd = new FormData();
+    fd.append('photo', file);
+    fd.append('code', code);
+    fd.append('expiry_month', expiryMonth);
+    const res = await apiUpload('POST', `/api/v1/targets/${encodeURIComponent(targetId)}/photos`, fd);
+    await refreshLivePharmacyData();
+    return res;
+  },
+  getStock(medId) { return (liveState.branchInventory || []).length ? availableStockForMed(medId) : null; },
+  setStock(medId, qty) { return saveLiveStock(medId, qty); },
+  govReference() { return Array.isArray(liveState.govReference) ? liveState.govReference : []; },
+  listReferenceDocs() { return this.refDocs; },
+  async refreshReferenceDocs() {
+    const res = await apiCall('GET', '/api/v1/reference/documents?limit=50');
+    this.refDocs = (res?.data || []).map(row => ({ id: row.id, name: row.name, size: row.size_bytes, addedAt: msOf(row.created_at), status: 'uploaded' }));
+    return this.refDocs;
+  },
+  async addReferenceDoc(file) {
+    const fd = new FormData();
+    fd.append('document', file);
+    await apiUpload('POST', '/api/v1/reference/documents', fd);
+    return this.refreshReferenceDocs();
+  }
+};
+
+async function clientLogin(phone, pin) {
+  const res = await apiCall('POST', '/api/v1/client/auth/login', { phone: phone.trim(), pin: String(pin).trim() }, false);
+  if (!res?.token) throw new Error('Login response did not include a session token.');
+  saveClientSession({ token: res.token, client: res.client });
+  await Promise.all([LiveClient.refreshTickets(), LiveClient.refreshSchedules(), loadPublicCatalogue()]).catch(() => {});
+}
+
+// Keep the client cache fresh: the open ticket every 2s, lists every 6s.
+let liveClientTick = 0;
+setInterval(async () => {
+  if (page[0] !== 'client' || !clientSession?.token) return;
+  liveClientTick++;
+  try {
+    if (page[1] === 'ticket' && page[2]) await LiveClient.refreshTicket(page[2]);
+    if (liveClientTick % 3 === 0 || ['tickets', 'schedules', 'home'].includes(page[1])) {
+      await Promise.all([LiveClient.refreshTickets(), LiveClient.refreshSchedules()]);
+    }
+  } catch (err) { LiveClient.error = err.message; }
+}, 2000);
 
 // ---- Live SSE Stream + Clean Polling Fallback -------------------------------
 function closeLiveSSE() {
@@ -1829,7 +2038,7 @@ function render(focus = false) {
   document.documentElement.dir=language==='ar'?'rtl':'ltr';
   document.documentElement.dataset.theme=theme;
   page = location.hash.slice(1).split('/');
-  if ((page[0]==='client' && !sessions.client.entered) ||
+  if ((page[0]==='client' && !clientSession?.token) ||
       (page[0]==='pharmacist' && !liveSession?.token)) {
     const role=page[0];
     page=['login',role];
@@ -1997,6 +2206,10 @@ document.addEventListener('click', async e => {
       await loginAsStaff(email, '1234', !navs[page[0]]);
       break;
     }
+    case 'client-logout':
+      saveClientSession(null);
+      location.hash = 'login/client';
+      break;
     case 'staff-logout':
       closeLiveSSE();
       saveLiveSession(null);
@@ -2345,6 +2558,16 @@ document.addEventListener('submit', async e => {
   }
 
   switch (form.id) {
+    case 'client-login-form': {
+      const out = document.getElementById('client-login-result');
+      try {
+        await clientLogin(String(data.get('phone') || ''), String(data.get('pin') || ''));
+        location.hash = 'client/home';
+      } catch (err) {
+        if (out) out.textContent = err.message;
+      }
+      break;
+    }
     case 'staff-login-form': {
       const email = String(data.get('email') || '').trim();
       const pin = String(data.get('pin') || '').trim();
@@ -2498,7 +2721,7 @@ document.addEventListener('change', e => {
 });
 
 // ---- Periodic Timers (Simulated Client Advance + Live Polling Fallback) -----
-setInterval(advance, 350);
+// (old simulated client ticker removed: client data is live)
 
 // 1s ticker to update queued outbox countdown labels inside open modal
 setInterval(() => {

@@ -244,7 +244,7 @@ if [ "$delivered" = 1 ]; then
   wreq "Bearer $TOKEN_B" POST "/api/v1/targets/$OFFER_TARGET_ID/reply" 200 '{"kind":"alternative","text":"3ande bas 625, ta3e abel l 6, cash"}'
   wreq "Bearer $TOKEN_A" POST "/api/v1/targets/$OFFER_TARGET_ID/offers" 201 "$OFFER_BODY"
   OFFER_ID=$(json_field id)
-  body_has "offer decision" '"decision":"escalated"'
+  body_has "offer decision" '"decision":"rejected"'
   body_has "offer decided_by" '"decided_by":"rules"'
   wreq "Bearer $TOKEN_A" GET "/api/v1/enquiries/$OFFER_ENQ_ID/offers" 200
   body_has "/api/v1/enquiries/{id}/offers" "\"id\":\"$OFFER_ID\""
@@ -342,6 +342,44 @@ wreq "Agent $AGENT_TOKEN" POST "/api/v1/enquiries/$CF_ENQ_ID/clarification-reque
 wreq "Agent $AGENT_TOKEN" GET "/api/v1/enquiries/$CF_ENQ_ID" 200
 body_has "content_filtered event" '"type":"content_filtered"'
 wreq "Bearer $TOKEN_A" POST "/api/v1/enquiries/$CF_ENQ_ID/close" 200 '{"outcome":"unable_to_confirm"}'
+
+echo "== DOSYN clients, tickets, photos, schedules (full flow: scripts/smoke_client.sh)"
+
+req POST /api/v1/client/auth/login 200 '{"phone":"+96170000000","pin":"1234"}'
+CLIENT_TOKEN=$(json_field token)
+req POST /api/v1/client/auth/login 401 '{"phone":"+96170000000","pin":"9999"}' unauthorized
+wreq "Bearer $CLIENT_TOKEN" GET /api/v1/client/me 200
+wreq "Bearer $TOKEN_A" GET /api/v1/client/me 403 '' forbidden
+wreq "Bearer $CLIENT_TOKEN" GET /api/v1/me 403 '' forbidden
+wreq "Bearer $CLIENT_TOKEN" POST /api/v1/client/tickets 400 '{"medication_id":"med-panadol-advance","quantity":1,"pickup_window":"ask for Maya"}' validation_failed
+wreq "Bearer $CLIENT_TOKEN" POST /api/v1/client/tickets 201 '{"medication_id":"med-panadol-advance","quantity":1,"pickup_window":"Tomorrow morning"}'
+CT_ID=$(json_field id)
+CT_ENQ=$(json_field enquiry_id)
+wreq "Bearer $CLIENT_TOKEN" GET "/api/v1/client/tickets?status=open" 200
+wreq "Bearer $CLIENT_TOKEN" GET "/api/v1/client/tickets/$CT_ID" 200
+body_has "/api/v1/client/tickets/{id}" '"kind":"client_request"'
+wreq "Agent $AGENT_TOKEN" GET "/api/v1/client/tickets/$CT_ID" 403 '' agent_forbidden
+wreq "Bearer $TOKEN_A" GET "/api/v1/client/tickets/$CT_ID" 403 '' forbidden
+STREAM_OUT=$(curl -sS -N -m 2 "$BASE/api/v1/client/tickets/$CT_ID/stream?access_token=$CLIENT_TOKEN" 2>/dev/null)
+BODY="$STREAM_OUT"; body_has "GET /api/v1/client/tickets/{id}/stream" "event: ticket_event"
+wreq "Bearer $CLIENT_TOKEN" POST "/api/v1/client/tickets/$CT_ID/reserve" 409 '{"branch_id":"branch-achrafieh"}' conflict
+wreq "Bearer $TOKEN_A" POST "/api/v1/targets/no-such-target/photos" 400 '{}' validation_failed
+wreq "Agent $AGENT_TOKEN" POST "/api/v1/targets/no-such-target/photos" 403 '{}' agent_forbidden
+wreq "Bearer $TOKEN_A" POST /api/v1/photos/no-such-photo/agent-reading 403 '{"code":"1","confidence":0.9}' forbidden
+wreq "Agent $AGENT_TOKEN" POST /api/v1/photos/no-such-photo/agent-reading 404 '{"code":"1","confidence":0.9}' not_found
+wreq "Bearer $TOKEN_A" POST /api/v1/photos/no-such-photo/review 403 '{"status":"verified"}' forbidden
+wreq "Agent $AGENT_TOKEN" GET /api/v1/photos/no-such-photo/file 404 '' not_found
+wreq "Bearer $CLIENT_TOKEN" GET /api/v1/client/schedules 200
+wreq "Bearer $CLIENT_TOKEN" POST /api/v1/client/schedules 201 '{"medication_id":"med-concor-5","quantity":1,"every":"2weeks","weekday":1,"pickup_window":"Within 2 days"}'
+SCHED_ID=$(json_field id)
+wreq "Bearer $CLIENT_TOKEN" PATCH "/api/v1/client/schedules/$SCHED_ID" 200 '{"status":"paused"}'
+wreq "Bearer $CLIENT_TOKEN" POST "/api/v1/client/schedules/$SCHED_ID/run" 201
+SCHED_TICKET_ENQ=$(json_field enquiry_id)
+wreq "Bearer $CLIENT_TOKEN" POST "/api/v1/client/schedules/$SCHED_ID/run" 409 '' conflict
+req POST /api/v1/auth/login 200 '{"email":"desk@wassit.demo","pin":"1234"}'
+TOKEN_DESK=$(json_field token)
+wreq "Bearer $TOKEN_DESK" POST "/api/v1/enquiries/$CT_ENQ/close" 200 '{"outcome":"cancelled"}'
+wreq "Bearer $TOKEN_DESK" POST "/api/v1/enquiries/$SCHED_TICKET_ENQ/close" 200 '{"outcome":"cancelled"}'
 
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

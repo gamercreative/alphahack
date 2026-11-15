@@ -75,6 +75,9 @@ func (h *Handlers) Register(mux *http.ServeMux) {
 		h.registerOutbox(mux)    // enq_outbox.go
 		h.registerAgentAPI(mux)  // enq_agentapi.go
 		h.registerStats(mux)     // enq_stats.go
+		h.registerClient(mux)    // client.go
+		h.registerSchedules(mux) // client.go
+		h.registerPhotos(mux)    // photos.go
 		if h.reference != nil {
 			h.registerReference(mux) // reference.go
 		}

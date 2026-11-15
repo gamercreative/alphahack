@@ -111,9 +111,12 @@ func run() error {
 		WaitUnit:             cfg.WaitUnit,
 		Logger:               logger,
 		Speech:               speech,
+		UploadDir:            cfg.UploadDir,
 	})
 	// Outbox dispatcher: queued -> sent once send_after has passed.
 	go enquirySvc.RunDispatcher(ctx, 250*time.Millisecond)
+	// Client medicine schedules: open the due cycle's ticket (wake 'scheduled').
+	go enquirySvc.RunScheduler(ctx, cfg.ScheduleInterval)
 	h := handlers.New(handlers.Deps{
 		Agents:        services.NewAgentService(store),
 		Conversations: services.NewConversationService(store),

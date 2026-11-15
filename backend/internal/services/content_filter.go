@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"alphahack/internal/queries"
 )
@@ -39,7 +40,17 @@ var (
 // allowedNames. Matching is case-insensitive and ignores zero-width characters,
 // Arabic diacritics and extra whitespace. reason teaches what to do instead.
 func CheckOutboundText(text string, allowedNames []string, catalogueNames []string) (ok bool, reason string) {
-	t := normalizeFilterText(text)
+	// A zero-width character can hide a word ("Bru\u200bfen") or stand in for a
+	// space ("you\u200bshould take"): check both readings.
+	if ok, reason = checkOutboundNormalized(normalizeFilterText(text), allowedNames, catalogueNames); !ok {
+		return ok, reason
+	}
+	return checkOutboundNormalized(normalizeFilterText(zeroWidthAsSpace.Replace(text)), allowedNames, catalogueNames)
+}
+
+var zeroWidthAsSpace = strings.NewReplacer("\u200b", " ", "\u200c", " ", "\u200d", " ", "\u2060", " ", "\ufeff", " ")
+
+func checkOutboundNormalized(t string, allowedNames []string, catalogueNames []string) (ok bool, reason string) {
 	if t == "" {
 		return true, ""
 	}
@@ -65,8 +76,16 @@ func CheckOutboundText(text string, allowedNames []string, catalogueNames []stri
 			allowed[w] = true
 		}
 	}
+	var names []string
 	for _, raw := range catalogueNames {
-		for _, part := range strings.Split(raw, "/") {
+		names = append(names, strings.Split(raw, "/")...)
+		// "Panadol Advance" is also sold and asked for as "Panadol".
+		if w := filterWords(normalizeFilterText(raw)); len(w) > 1 && len([]rune(w[0])) >= 5 {
+			names = append(names, w[0])
+		}
+	}
+	{
+		for _, part := range names {
 			name := normalizeFilterText(part)
 			if name == "" || isAllowedName(name, allowed) {
 				continue
@@ -115,10 +134,24 @@ func normalizeFilterText(s string) string {
 			continue // zero-width, LRM/RLM, word joiner, BOM, soft hyphen, Arabic letter mark
 		case (r >= 0x064B && r <= 0x0652) || r == 0x0670 || r == 0x0640:
 			continue // Arabic diacritics (tashkeel), superscript alef, tatweel
+		case r >= 0xFF01 && r <= 0xFF5E:
+			r = unicode.ToLower(r - 0xFEE0) // fullwidth ASCII
+		}
+		if f, ok := filterFold[r]; ok {
+			r = f
 		}
 		b.WriteRune(r)
 	}
 	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+// filterFold maps Latin accents and Cyrillic/Greek look-alike letters (already
+// lowercased) to plain Latin, so "a la place" == "à la place" and "Вrufen" == "brufen".
+var filterFold = map[rune]rune{
+	'à': 'a', 'á': 'a', 'â': 'a', 'ä': 'a', 'ã': 'a', 'ç': 'c', 'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
+	'î': 'i', 'ï': 'i', 'í': 'i', 'ô': 'o', 'ö': 'o', 'ó': 'o', 'ù': 'u', 'û': 'u', 'ü': 'u', 'ú': 'u', 'ÿ': 'y',
+	'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't',
+	'у': 'y', 'х': 'x', 'і': 'i', 'ј': 'j', 'ѕ': 's', 'ο': 'o', 'α': 'a', 'ι': 'i', 'ν': 'v', 'ρ': 'p',
 }
 
 func isWordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
@@ -130,7 +163,28 @@ func filterWords(s string) []string {
 
 // containsWord reports whether phrase occurs in t with a non-word character
 // (or the text edge) on both sides.
-func containsWord(t, phrase string) bool { return findBounded(t, phrase, true) }
+// A digit right after the name still ends it, so "Ibuprofen400mg" matches.
+func containsWord(t, phrase string) bool { return findBoundedName(t, phrase) }
+
+func findBoundedName(t, phrase string) bool {
+	if phrase == "" {
+		return false
+	}
+	for from := 0; from <= len(t)-len(phrase); {
+		i := strings.Index(t[from:], phrase)
+		if i < 0 {
+			return false
+		}
+		start := from + i
+		end := start + len(phrase)
+		after, _ := utf8.DecodeRuneInString(t[end:])
+		if boundaryBefore(t, start) && (end >= len(t) || !unicode.IsLetter(after)) {
+			return true
+		}
+		from = start + 1
+	}
+	return false
+}
 
 // latinPhraseIn needs a boundary before the phrase, and after it unless the
 // phrase's last word is 6+ letters long (then inflected endings still match).

@@ -28,10 +28,16 @@ type Actor struct {
 
 func (a Actor) IsAgent() bool { return a.Type == queries.ActorAgent }
 
-// Label is stored in outbox_messages.created_by_actor: "staff:<id>" or "agent".
+// IsClient reports a DOSYN client (client token).
+func (a Actor) IsClient() bool { return a.Type == queries.ActorClient }
+
+// Label is stored in outbox_messages.created_by_actor: "staff:<id>", "client:<id>" or "agent".
 func (a Actor) Label() string {
 	if a.IsAgent() {
 		return "agent"
+	}
+	if a.IsClient() {
+		return "client:" + a.ID
 	}
 	return "staff:" + a.ID
 }
@@ -49,6 +55,7 @@ type EnquiryConfig struct {
 	Now                  func() time.Time
 	Logger               *slog.Logger // background errors (outbox dispatcher); nil = slog.Default()
 	Speech               ai.Speech    // text to speech for simulated calls; nil = off
+	UploadDir            string       // package photos go to UploadDir/photos; "" = ./uploads
 }
 
 type EnquiryService struct {
@@ -68,6 +75,9 @@ func NewEnquiryService(store queries.Querier, cfg EnquiryConfig) *EnquiryService
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
+	}
+	if cfg.UploadDir == "" {
+		cfg.UploadDir = "./uploads"
 	}
 	return &EnquiryService{store: store, cfg: cfg}
 }

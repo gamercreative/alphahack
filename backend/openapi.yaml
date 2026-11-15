@@ -1481,6 +1481,342 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
 
+  /api/v1/client/auth/login:
+    post:
+      summary: DOSYN client login (phone + PIN)
+      description: "Who: public. Returns a client token (12h) for 'Authorization: Bearer <token>'. Client tokens get 403 forbidden on staff and agent routes."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, pin]
+              properties:
+                phone: { type: string, example: "+96170000000" }
+                pin: { type: string, example: "1234" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClientLoginResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /api/v1/client/me:
+    get:
+      summary: The calling client
+      description: "Who: client only (staff -> 403 forbidden, agent -> 403 agent_forbidden)."
+      security: [{ ClientBearer: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client: { $ref: "#/components/schemas/ClientView" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /api/v1/client/tickets:
+    get:
+      summary: The client's own tickets, newest first
+      description: "Who: client only."
+      security: [{ ClientBearer: [] }]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, reserved, closed] } }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/TicketSummary" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Open a ticket (one medicine, quantity 1..10, a fixed pickup window)
+      description: "Who: client only. In one transaction: a client-desk enquiry (requester DOSYN client desk, handled_by agent, wake 'created') whose raw_request is built only from catalogue fields ('need {brand} {strength} {form} x{qty}, pickup {window}'), the ticket (mode once) and an enquiry_created event (actor client). pickup_window must be one of the listed values (free text could carry client data)."
+      security: [{ ClientBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTicketInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TicketView" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/client/tickets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Ticket detail with the thread and the best offer
+      description: "Who: the ticket's client (anyone else: 404). thread rows are built in Go from events, outbox messages, targets, offers (dose check from the offer_decided payload) and package photos. working = enquiry open and no target yet or one still proposed/approved/sent. best_offer is computed by the rules (rule 11) or null."
+      security: [{ ClientBearer: [] }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TicketDetail" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/client/tickets/{id}/stream:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: Live ticket thread (server-sent events)
+      description: "Who: the ticket's client; EventSource may pass ?access_token=<client token>. Sends every thread row, then each new row as an event named ticket_event (data = ThreadRow). The computed best_offer row gets a new id whenever its content changes."
+      security: [{ ClientBearer: [] }]
+      responses:
+        "200":
+          description: text/event-stream
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/client/tickets/{id}/reserve:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Reserve at a pharmacy with a verified offer
+      description: "Who: the ticket's client. 409 unless the branch has a verified offer (rules match + verified package photo). Closes the enquiry available at that branch (amended rule 6), queues a hold notification to that pharmacy ('Please hold ... for a DOSYN client until ...'), marks the ticket reserved; events actor client."
+      security: [{ ClientBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch_id]
+              properties:
+                branch_id: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TicketView" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/client/schedules:
+    get:
+      summary: The client's medicine schedules
+      description: "Who: client only."
+      security: [{ ClientBearer: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Schedule" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Create a medicine schedule
+      description: "Who: client only. next_run_at = the next weekday 09:00 Asia/Beirut. Each cycle opens one ticket (mode scheduled, wake 'scheduled'); no_bulk: cycles are never merged."
+      security: [{ ClientBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateScheduleInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/client/schedules/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      summary: Pause or resume a schedule
+      description: "Who: the schedule's client. Resuming after next_run_at passed moves it to the next weekday 09:00."
+      security: [{ ClientBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [active, paused] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/v1/client/schedules/{id}/run:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Run this cycle now
+      description: "Who: the schedule's client. Opens the cycle's ticket (mode scheduled, wake 'scheduled') and moves next_run_at to the next cycle (+7 / +14 / +28 days). 409 while a ticket of this schedule is still open (no bulk). A background scheduler (SCHEDULE_INTERVAL, default 30s) does the same for due active schedules."
+      security: [{ ClientBearer: [] }]
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TicketView" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/targets/{id}/photos:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Target pharmacist uploads a package photo and types its code and expiry
+      description: "Who: staff at the target branch only (agent -> 403 agent_forbidden, other staff/clients -> 403 forbidden); the target must have replied available or alternative. JPEG/PNG, max 5 MB, sniffed. Go decides (rule 10): code = gov code of the offered product (a rules-accepted equivalent's gov_code, else the enquiry medication's reference row) and expiry_month >= pickup month -> verified; a known gov code of another product, or expiry before pickup -> mismatch; code missing/unknown or expiry missing -> flagged (reviewer). Events photo_uploaded (staff) + photo_checked (system/rules); agent enquiries get wake_trigger 'photo'. Stored under UPLOAD_DIR/photos."
+      security: [{ StaffBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [photo]
+              properties:
+                photo: { type: string, format: binary }
+                code: { type: string, example: "6280000000001" }
+                expiry_month: { type: string, example: "2027-08", description: "YYYY-MM or MM/YYYY" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PhotoResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/photos/{id}/agent-reading:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: The agent's reading of a package photo (the rules still decide)
+      description: "Who: agent only (staff/clients -> 403 forbidden). Stored on the photo. Reading agrees with the typed code and expiry and confidence >= 0.6 -> the rules' verdict on the typed values; otherwise flagged for a reviewer. 409 after a human review. Events photo_read (agent) + photo_checked (system/rules)."
+      security: [{ AgentToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentReadingInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PhotoResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/photos/{id}/review:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      summary: Reviewer decides a photo (decided_by human)
+      description: "Who: staff with role reviewer only (others -> 403 forbidden, agent -> 403 agent_forbidden). Event photo_reviewed; agent enquiries get wake_trigger 'photo'."
+      security: [{ StaffBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [verified, rejected] }
+                note: { type: string, maxLength: 300 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PhotoResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/photos/{id}/file:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      summary: The photo image
+      description: "Who: staff of the target or requester pharmacy, a reviewer, the agent (agent enquiries) or the ticket's client; anyone else gets 404."
+      security: [{ StaffBearer: [] }, { AgentToken: [] }, { ClientBearer: [] }]
+      responses:
+        "200":
+          description: Image bytes
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
 components:
   parameters:
     ID:
@@ -1727,6 +2063,182 @@ components:
       required: [quantity_on_hand]
       properties:
         quantity_on_hand: { type: integer, minimum: 0, maximum: 1000000 }
+
+    ClientView:
+      type: object
+      properties:
+        id: { type: string }
+        display_name: { type: string }
+
+    ClientLoginResult:
+      type: object
+      properties:
+        token: { type: string, description: "starts with c_" }
+        client: { $ref: "#/components/schemas/ClientView" }
+
+    PickupWindow:
+      type: string
+      enum: ["Today before 18:00", "Tomorrow morning", "Within 2 days", "Same day before 18:00", "Same day after 18:00", "Next morning"]
+
+    CreateTicketInput:
+      type: object
+      additionalProperties: false
+      required: [medication_id, quantity, pickup_window]
+      properties:
+        medication_id: { type: string }
+        quantity: { type: integer, minimum: 1, maximum: 10 }
+        pickup_window: { $ref: "#/components/schemas/PickupWindow" }
+
+    TicketMedication:
+      type: object
+      properties:
+        id: { type: string }
+        brand_name: { type: string }
+        active_ingredient: { type: string }
+        strength: { type: string }
+        dosage_form: { type: string }
+        unit_price_cents: { type: integer, format: int64 }
+
+    TicketView:
+      type: object
+      properties:
+        id: { type: string }
+        client_id: { type: string }
+        enquiry_id: { type: string }
+        schedule_id: { type: string, nullable: true }
+        mode: { type: string, enum: [once, scheduled] }
+        pickup_window: { type: string }
+        status: { type: string, enum: [open, reserved, closed] }
+        reserved_branch_id: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        quantity: { type: integer }
+
+    BestOffer:
+      type: object
+      nullable: true
+      description: "Rule 11: verified offers only (decision matches incl. rule-accepted equivalents + verified photo); lowest total, then latest expiry."
+      properties:
+        branch_id: { type: string }
+        offer_id: { type: string }
+        total_cents: { type: integer, format: int64 }
+        expiry_month: { type: string, description: "YYYY-MM; from the offer, else the verified photo's typed expiry; may be empty" }
+        excluded:
+          type: array
+          items:
+            type: object
+            properties:
+              branch_id: { type: string }
+              reason: { type: string, example: "Photo did not match the government reference" }
+
+    ThreadRow:
+      type: object
+      properties:
+        id: { type: string }
+        at: { type: string, format: date-time }
+        kind: { type: string, enum: [client_request, wassit_note, outreach, pharmacy_reply, declined, no_answer, offer, dose_check, photo_check, best_offer, reserved] }
+        decider: { type: string, enum: [rules, human, pharmacy, client, wassit] }
+        branch_id: { type: string, nullable: true }
+        text: { type: string }
+        data:
+          type: object
+          additionalProperties: true
+          description: "outreach {branch_ids, message}; offer {offer: TargetOffer + total_cents, expiry_month, unit_strength, equivalent, gov_code}; dose_check {accepted, requested, offered, checks:[{label, ok}], gov_ref:{code}|null}; photo_check {photo_id, status, barcode, gov_match, expiry|null, note}; best_offer {branch_id|null, total_cents, expiry_month, offer_id, excluded}; others {}"
+
+    TicketDetail:
+      type: object
+      properties:
+        ticket: { $ref: "#/components/schemas/TicketView" }
+        medication: { $ref: "#/components/schemas/TicketMedication" }
+        branches:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+        working: { type: boolean }
+        thread:
+          type: array
+          items: { $ref: "#/components/schemas/ThreadRow" }
+        best_offer: { $ref: "#/components/schemas/BestOffer" }
+
+    TicketSummary:
+      type: object
+      properties:
+        id: { type: string }
+        enquiry_id: { type: string }
+        schedule_id: { type: string, nullable: true }
+        medication: { $ref: "#/components/schemas/TicketMedication" }
+        quantity: { type: integer }
+        mode: { type: string, enum: [once, scheduled] }
+        pickup_window: { type: string }
+        status: { type: string, enum: [open, reserved, closed] }
+        reserved_branch_id: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        working: { type: boolean }
+        best_offer: { $ref: "#/components/schemas/BestOffer" }
+
+    CreateScheduleInput:
+      type: object
+      additionalProperties: false
+      required: [medication_id, quantity, every, weekday, pickup_window]
+      properties:
+        medication_id: { type: string }
+        quantity: { type: integer, minimum: 1, maximum: 10 }
+        every: { type: string, enum: [week, 2weeks, month] }
+        weekday: { type: integer, minimum: 0, maximum: 6, description: "0 = Sunday" }
+        pickup_window: { $ref: "#/components/schemas/PickupWindow" }
+
+    Schedule:
+      type: object
+      properties:
+        id: { type: string }
+        medication: { $ref: "#/components/schemas/TicketMedication" }
+        quantity: { type: integer }
+        every: { type: string, enum: [week, 2weeks, month] }
+        weekday: { type: integer }
+        pickup_window: { type: string }
+        no_bulk: { type: boolean }
+        status: { type: string, enum: [active, paused] }
+        next_run_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        ticket_ids: { type: array, items: { type: string } }
+
+    PhotoResult:
+      type: object
+      properties:
+        id: { type: string }
+        target_id: { type: string }
+        branch_id: { type: string }
+        status: { type: string, enum: [verified, flagged, mismatch, rejected] }
+        gov_match: { type: boolean }
+        code: { type: string }
+        expiry_month: { type: string }
+        decided_by: { type: string, enum: [rules, human] }
+        note: { type: string, description: "Always says a photo alone does not prove a box is genuine" }
+
+    PhotoSummary:
+      type: object
+      properties:
+        id: { type: string }
+        target_id: { type: string }
+        branch_id: { type: string }
+        status: { type: string, enum: [verified, flagged, mismatch, rejected] }
+        decided_by: { type: string, enum: [rules, human] }
+        typed_code: { type: string }
+        typed_expiry_month: { type: string }
+        agent_code: { type: string }
+        agent_expiry_month: { type: string }
+        agent_confidence: { type: number, nullable: true }
+
+    AgentReadingInput:
+      type: object
+      additionalProperties: false
+      required: [confidence]
+      properties:
+        code: { type: string, maxLength: 32 }
+        expiry_month: { type: string, description: "YYYY-MM or MM/YYYY; empty if unreadable" }
+        confidence: { type: number, minimum: 0, maximum: 1 }
 
     InventoryBatch:
       type: object
@@ -1996,7 +2508,7 @@ components:
         clarification_answer: { type: string }
         wake_trigger:
           type: string
-          description: Set on created, clarified, approved or reply for agent enquiries; cleared when a run starts
+          description: Set on created, clarified, approved, reply, scheduled (a schedule opened the ticket) or photo (a package photo was uploaded or reviewed) for agent enquiries; cleared when a run starts
         next_wake_at: { type: string, format: date-time, nullable: true }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -2020,6 +2532,11 @@ components:
               type: array
               description: Run summaries
               items: { $ref: "#/components/schemas/EnquiryAgentRun" }
+            photos:
+              type: array
+              description: Package photos, compact (typed code/expiry and the agent's reading)
+              items: { $ref: "#/components/schemas/PhotoSummary" }
+            wake_photo_id: { type: string, nullable: true, description: "Photo that set wake_trigger 'photo', else null" }
 
     OfferInput:
       type: object
@@ -2158,7 +2675,7 @@ components:
         enquiry_id: { type: string }
         trigger:
           type: string
-          enum: [created, clarified, approved, reply, timer]
+          enum: [created, clarified, approved, reply, scheduled, photo, timer]
         model: { type: string }
         input_tokens: { type: integer, minimum: 0 }
         output_tokens: { type: integer, minimum: 0 }
@@ -2215,6 +2732,8 @@ components:
         raw_request: { type: string }
         quantity: { type: integer, minimum: 1 }
         sent_at: { type: string, format: date-time, nullable: true }
+        requester_kind: { type: string, enum: [pharmacy, client], description: "client = a DOSYN client ticket (requester shown as 'DOSYN client desk', never the client)" }
+        pickup_window: { type: string, description: "Client tickets only, else empty" }
 
     AgentWakeup:
       type: object
@@ -2222,7 +2741,7 @@ components:
         enquiry_id: { type: string }
         trigger:
           type: string
-          enum: [created, clarified, approved, reply, timer]
+          enum: [created, clarified, approved, reply, scheduled, photo, timer]
 
     EnquiryStat:
       type: object
@@ -2332,7 +2851,7 @@ components:
         enquiry_id: { type: string }
         trigger:
           type: string
-          enum: [created, clarified, approved, reply, timer]
+          enum: [created, clarified, approved, reply, scheduled, photo, timer]
         model: { type: string }
 
     UpdateAgentRunInput:
@@ -2358,6 +2877,10 @@ components:
         duration_ms: { type: integer, minimum: 0 }
 
   securitySchemes:
+    ClientBearer:
+      type: http
+      scheme: bearer
+      description: "Client token from POST /api/v1/client/auth/login (starts with c_), sent as 'Authorization: Bearer <token>'. Staff and agent routes answer it with 403 forbidden."
     StaffBearer:
       type: http
       scheme: bearer

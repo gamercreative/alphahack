@@ -34,9 +34,9 @@ func (s *EnquiryService) StartRun(ctx context.Context, enquiryID, trigger, model
 	trigger = clean(trigger)
 	model = clean(model)
 	switch trigger {
-	case WakeCreated, WakeClarified, WakeApproved, WakeReply, "timer":
+	case WakeCreated, WakeClarified, WakeApproved, WakeReply, WakeScheduled, WakePhoto, "timer":
 	default:
-		return queries.EnquiryAgentRun{}, Invalid("trigger must be created, clarified, approved, reply or timer")
+		return queries.EnquiryAgentRun{}, Invalid("trigger must be created, clarified, approved, reply, scheduled, photo or timer")
 	}
 	if model == "" {
 		return queries.EnquiryAgentRun{}, Invalid("model is required")

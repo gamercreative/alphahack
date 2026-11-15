@@ -295,3 +295,83 @@ Table gov_products {
     `lower(ingredient)` [name: 'gov_products_ingredient_idx']
   }
 }
+
+// DOSYN clients (0008_clients). Never linked to `customers`. enquiry_events.actor_type
+// also allows 'client'. Seed: branch-client-desk ('DOSYN client desk', participating
+// = false, no lat/lng), staff desk@wassit.demo (role reviewer), client Maya.
+Table clients {
+  id text [pk, default: `gen_random_uuid()::text`]
+  display_name text [not null]
+  phone text [not null, unique]
+  pin_hash text [not null, note: 'hex sha256 of the PIN']
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table client_sessions {
+  token_hash text [pk, note: 'hex sha256 of the c_ token']
+  client_id text [not null, ref: > clients.id, note: 'ON DELETE CASCADE']
+  expires_at timestamptz [not null]
+}
+
+// Schedules and tickets (0009_schedules_tickets). A ticket wraps one client-desk enquiry.
+Table medicine_schedules {
+  id text [pk, default: `gen_random_uuid()::text`]
+  client_id text [not null, ref: > clients.id, note: 'ON DELETE CASCADE']
+  medication_id text [not null, ref: > medications.id]
+  quantity integer [not null, note: '1..10']
+  every text [not null, note: 'week | 2weeks | month']
+  weekday integer [not null, note: '0 (Sunday) .. 6']
+  pickup_window text [not null]
+  no_bulk boolean [not null, default: true]
+  status text [not null, default: 'active', note: 'active | paused']
+  next_run_at timestamptz [not null, note: 'weekday 09:00 Asia/Beirut']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, next_run_at) [name: 'medicine_schedules_due_idx']
+    (client_id, created_at) [name: 'medicine_schedules_client_idx']
+  }
+}
+
+Table client_tickets {
+  id text [pk, default: `gen_random_uuid()::text`]
+  client_id text [not null, ref: > clients.id, note: 'ON DELETE CASCADE']
+  enquiry_id text [not null, unique, note: 'enquiries.id, ON DELETE CASCADE']
+  schedule_id text [null, ref: > medicine_schedules.id, note: 'ON DELETE SET NULL']
+  mode text [not null, note: 'once | scheduled']
+  pickup_window text [not null, note: 'one of the fixed UI values']
+  status text [not null, default: 'open', note: 'open | reserved | closed']
+  reserved_branch_id text [null, ref: > branches.id]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (client_id, created_at) [name: 'client_tickets_client_idx']
+    schedule_id [name: 'client_tickets_schedule_idx']
+  }
+}
+
+// Package photos (0010_package_photos): evidence, not proof (rule 10).
+Table package_photos {
+  id text [pk, default: `gen_random_uuid()::text`]
+  target_id text [not null, note: 'enquiry_targets.id, ON DELETE CASCADE']
+  branch_id text [not null, ref: > branches.id]
+  storage_path text [not null, note: 'UPLOAD_DIR/photos/<id><ext>; never returned by the API']
+  content_type text [not null, note: 'image/jpeg | image/png (sniffed)']
+  size_bytes bigint [not null, note: 'max 5 MB']
+  typed_code text [not null, default: '', note: 'typed by the target pharmacist']
+  typed_expiry_month text [not null, default: '', note: 'YYYY-MM']
+  status text [not null, note: 'verified | flagged | mismatch | rejected']
+  gov_match boolean [not null, default: false]
+  decided_by text [not null, note: 'rules | human']
+  note text [not null, default: '']
+  reviewed_by_staff_id text [null, note: 'staff.id (reviewer)']
+  agent_code text [not null, default: '', note: "the agent's reading"]
+  agent_expiry_month text [not null, default: '']
+  agent_confidence double [null, note: '0..1']
+  read_at timestamptz [null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (target_id, created_at) [name: 'package_photos_target_idx']
+  }
+}

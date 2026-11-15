@@ -81,5 +81,8 @@ func (s *EnquiryService) EventsSince(ctx context.Context, a Actor, enquiryID str
 	if err != nil {
 		return nil, FromStore(err, "enquiry")
 	}
+	if redactDesk(a, e) { // rule 8: the client stays anonymous to pharmacies
+		events = redactDeskEvents(events, true)
+	}
 	return events, nil
 }

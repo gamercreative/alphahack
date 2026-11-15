@@ -9,3 +9,4 @@ Cornilia/
 __pycache__/
 *.pyc
 .pytest_cache/
+.dev/

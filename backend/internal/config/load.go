@@ -84,6 +84,10 @@ func load(getenv func(string) string, dotenvPath string) (Config, error) {
 	c.AgentToken = get("AGENT_TOKEN")
 	c.WaitUnit = l.duration("WAIT_UNIT", time.Minute)
 	c.UploadDir = withDefault(strings.TrimSpace(get("UPLOAD_DIR")), "./uploads")
+	c.ScheduleInterval = l.duration("SCHEDULE_INTERVAL", 30*time.Second)
+	if c.ScheduleInterval <= 0 {
+		l.fail("SCHEDULE_INTERVAL must be a positive duration such as 30s")
+	}
 	c.AgentPriceInPerMTok = l.price("AGENT_PRICE_IN_PER_MTOK")
 	c.AgentPriceOutPerMTok = l.price("AGENT_PRICE_OUT_PER_MTOK")
 	c.CORSOrigins = splitList(withDefault(get("CORS_ALLOWED_ORIGINS"), "*"))

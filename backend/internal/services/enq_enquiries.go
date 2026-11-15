@@ -127,13 +127,15 @@ type TargetView struct {
 }
 
 type EnquiryDetail struct {
-	Enquiry    queries.Enquiry           `json:"enquiry"`
-	Medication *MedSummary               `json:"medication"`
-	Targets    []TargetView              `json:"targets"`
-	Messages   []queries.OutboxMessage   `json:"messages"`
-	Events     []queries.EnquiryEvent    `json:"events"`
-	Runs       []queries.EnquiryAgentRun `json:"runs"`
-	HITLCount  int                       `json:"hitl_count"`
+	Enquiry     queries.Enquiry           `json:"enquiry"`
+	Medication  *MedSummary               `json:"medication"`
+	Targets     []TargetView              `json:"targets"`
+	Messages    []queries.OutboxMessage   `json:"messages"`
+	Events      []queries.EnquiryEvent    `json:"events"`
+	Runs        []queries.EnquiryAgentRun `json:"runs"`
+	HITLCount   int                       `json:"hitl_count"`
+	Photos      []PhotoSummary            `json:"photos"`        // package photos, compact (codes typed + agent reading)
+	WakePhotoID *string                   `json:"wake_photo_id"` // photo that set wake_trigger 'photo', else null
 }
 
 func isHITLEvent(typ string) bool {
@@ -224,14 +226,27 @@ func (s *EnquiryService) GetEnquiryDetail(ctx context.Context, a Actor, id strin
 		runs = []queries.EnquiryAgentRun{}
 	}
 
+	photos, err := s.store.ListEnquiryPhotos(ctx, e.ID)
+	if err != nil {
+		return EnquiryDetail{}, FromStore(err, "photo")
+	}
+	if redactDesk(a, e) { // rule 8: the client stays anonymous to pharmacies and the agent
+		events = redactDeskEvents(events, !a.IsAgent())
+		if !a.IsAgent() {
+			messages = redactDeskMessages(messages)
+		}
+	}
+
 	return EnquiryDetail{
-		Enquiry:    e,
-		Medication: med,
-		Targets:    views,
-		Messages:   messages,
-		Events:     events,
-		Runs:       runs,
-		HITLCount:  hitl,
+		Photos:      photoSummaries(photos),
+		WakePhotoID: wakePhotoID(e, events),
+		Enquiry:     e,
+		Medication:  med,
+		Targets:     views,
+		Messages:    messages,
+		Events:      events,
+		Runs:        runs,
+		HITLCount:   hitl,
 	}, nil
 }
 
@@ -495,6 +510,12 @@ func (s *EnquiryService) AddTargets(ctx context.Context, a Actor, id string, bra
 		if a.IsAgent() {
 			status = queries.TargetProposed
 		}
+		// Client-desk enquiries: Go approves agent proposals that are all in the
+		// ranked candidates (amended contract); otherwise they wait for the desk staff.
+		autoApprove, err := s.deskAutoApprove(ctx, a, e, ids)
+		if err != nil {
+			return err
+		}
 
 		created := make([]queries.EnquiryTarget, 0, len(ids))
 		for _, bid := range ids {
@@ -531,6 +552,10 @@ func (s *EnquiryService) AddTargets(ctx context.Context, a Actor, id string, bra
 		if a.IsAgent() {
 			u := toUpdate(e)
 			u.Status = queries.EnquiryAwaitingApproval
+			if autoApprove {
+				u.Status = e.Status
+				wakeAgent(e, &u, WakeApproved)
+			}
 			if _, err := q.UpdateEnquiry(ctx, u); err != nil {
 				return FromStore(err, "enquiry")
 			}
@@ -548,6 +573,20 @@ func (s *EnquiryService) AddTargets(ctx context.Context, a Actor, id string, bra
 		if _, err := s.logEvent(ctx, q, e.ID, a, typ, payload,
 			&Inverse{Op: "delete_targets", TargetIDs: targetIDs}); err != nil {
 			return err
+		}
+		if autoApprove {
+			for i, t := range created {
+				t.Status = queries.TargetApproved
+				if created[i], err = q.UpdateEnquiryTarget(ctx, targetToUpdate(t)); err != nil {
+					return FromStore(err, "target")
+				}
+			}
+			if _, err := s.logEvent(ctx, q, e.ID, RulesActor, EvTargetsApproved, map[string]any{
+				"target_ids": targetIDs, "auto": true,
+				"rule": "client-desk enquiry: every proposed pharmacy is in the ranked candidates",
+			}, nil); err != nil {
+				return err
+			}
 		}
 		out = created
 		return nil
@@ -610,6 +649,9 @@ func (s *EnquiryService) CloseEnquiry(ctx context.Context, a Actor, id, outcome 
 			if !found {
 				return Conflict("cannot close as available: no contacted pharmacy has replied available. Wait for replies or close as unable_to_confirm")
 			}
+			if err := s.deskCloseCheck(ctx, q, a, e, outcome, bid); err != nil {
+				return err // amended rule 6: client tickets need a verified offer there
+			}
 			u.OutcomeBranchID = strPtr(bid)
 			u.Status = queries.EnquiryClosed
 		case queries.OutcomeUnavailable:
@@ -642,6 +684,12 @@ func (s *EnquiryService) CloseEnquiry(ctx context.Context, a Actor, id, outcome 
 			u.Status = queries.EnquiryCancelled
 		default:
 			return Invalid("outcome must be available, unavailable, unable_to_confirm or cancelled")
+		}
+
+		if outcome != queries.OutcomeAvailable {
+			if err := s.deskCloseCheck(ctx, q, a, e, outcome, ""); err != nil {
+				return err // closes the client ticket too
+			}
 		}
 
 		now := s.now()

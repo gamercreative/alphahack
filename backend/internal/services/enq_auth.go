@@ -90,6 +90,9 @@ func (s *EnquiryService) Authenticate(ctx context.Context, authorization string)
 
 	case strings.HasPrefix(authorization, "Bearer "):
 		token := strings.TrimPrefix(authorization, "Bearer ")
+		if strings.HasPrefix(token, ClientTokenPrefix) {
+			return s.authenticateClient(ctx, token) // client_auth.go
+		}
 		staff, err := s.store.GetStaffBySessionToken(ctx, sha256Hex(token))
 		if errors.Is(err, queries.ErrNotFound) {
 			return Actor{}, Unauthorized("session expired or invalid; log in again with POST /api/v1/auth/login")

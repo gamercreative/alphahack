@@ -227,4 +227,42 @@ type Querier interface {
 	// SetBatchQuantityOnHand sets quantity_on_hand (and updated_at). ErrNotFound when no batch.
 	SetBatchQuantityOnHand(ctx context.Context, batchID string, quantity int) (InventoryBatch, error)
 	CreateInventoryBatch(ctx context.Context, p CreateInventoryBatchParams) (InventoryBatch, error)
+
+	// ---- DOSYN clients, tickets, schedules, photos (clients.go, migrations 0008-0010) ----
+
+	// Clients + sessions. GetClientBySessionToken only matches when expires_at > now().
+	GetClientByPhone(ctx context.Context, phone string) (Client, error)
+	GetClient(ctx context.Context, id string) (Client, error)
+	CreateClientSession(ctx context.Context, p CreateClientSessionParams) error
+	GetClientBySessionToken(ctx context.Context, tokenHash string) (Client, error)
+
+	// Client tickets. ListClientTickets orders by created_at DESC, id ("" status = all);
+	// ListScheduleTickets the same for one schedule.
+	CreateClientTicket(ctx context.Context, p CreateClientTicketParams) (ClientTicket, error)
+	GetClientTicket(ctx context.Context, id string) (ClientTicket, error)
+	GetClientTicketByEnquiry(ctx context.Context, enquiryID string) (ClientTicket, error)
+	ListClientTickets(ctx context.Context, clientID, status string, limit, offset int) ([]ClientTicket, error)
+	ListScheduleTickets(ctx context.Context, scheduleID string) ([]ClientTicket, error)
+	UpdateClientTicketStatus(ctx context.Context, id, status string, reservedBranchID *string) (ClientTicket, error)
+
+	// Medicine schedules. ListClientSchedules orders by created_at DESC, id.
+	// ListDueSchedules: active with next_run_at <= now(), FOR UPDATE SKIP LOCKED (use inside InTx).
+	CreateMedicineSchedule(ctx context.Context, p CreateMedicineScheduleParams) (MedicineSchedule, error)
+	GetMedicineSchedule(ctx context.Context, id string) (MedicineSchedule, error)
+	GetMedicineScheduleForUpdate(ctx context.Context, id string) (MedicineSchedule, error)
+	ListClientSchedules(ctx context.Context, clientID string, limit, offset int) ([]MedicineSchedule, error)
+	UpdateMedicineSchedule(ctx context.Context, id, status string, nextRunAt time.Time) (MedicineSchedule, error)
+	ListDueSchedules(ctx context.Context, limit int) ([]MedicineSchedule, error)
+
+	// Package photos. ListEnquiryPhotos orders by created_at, id. ReviewPackagePhoto
+	// sets decided_by = 'human'.
+	CreatePackagePhoto(ctx context.Context, p CreatePackagePhotoParams) (PackagePhoto, error)
+	GetPackagePhoto(ctx context.Context, id string) (PackagePhoto, error)
+	ListEnquiryPhotos(ctx context.Context, enquiryID string) ([]PackagePhoto, error)
+	ReviewPackagePhoto(ctx context.Context, p ReviewPackagePhotoParams) (PackagePhoto, error)
+	// RecordPhotoAgentReading: ErrNotFound when the photo is missing or already human-reviewed.
+	RecordPhotoAgentReading(ctx context.Context, p RecordPhotoAgentReadingParams) (PackagePhoto, error)
+
+	// GetGovProduct returns one government reference row by code (ErrNotFound if none).
+	GetGovProduct(ctx context.Context, code string) (GovProduct, error)
 }

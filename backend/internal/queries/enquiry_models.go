@@ -56,6 +56,7 @@ const (
 	ActorStaff  = "staff"
 	ActorAgent  = "agent"
 	ActorSystem = "system"
+	ActorClient = "client" // a DOSYN client (migration 0008)
 )
 
 type Staff struct {
@@ -179,7 +180,9 @@ type InboxItem struct {
 	MedicationName      string     `json:"medication_name"` // "Brand strength form", "" if unset
 	RawRequest          string     `json:"raw_request"`
 	Quantity            int        `json:"quantity"`
-	SentAt              *time.Time `json:"sent_at"` // sent_at of the enquiry outbox message
+	SentAt              *time.Time `json:"sent_at"`        // sent_at of the enquiry outbox message
+	RequesterKind       string     `json:"requester_kind"` // "client" (DOSYN client desk) | "pharmacy"
+	PickupWindow        string     `json:"pickup_window"`  // client tickets only, else ""
 }
 
 type AgentWakeup struct {
@@ -418,4 +421,141 @@ type CreateInventoryBatchParams struct {
 	BatchNumber    string
 	ExpiryDate     time.Time
 	QuantityOnHand int
+}
+
+// ---- DOSYN clients, tickets, schedules, photos (migrations 0008-0010) ----
+
+// DeskBranchID is the requester branch of every client ticket (participating = false).
+const DeskBranchID = "branch-client-desk"
+
+// DeskStaffID is the desk reviewer who is the requester staff of client tickets.
+const DeskStaffID = "staff-client-desk"
+
+type Client struct {
+	ID          string    `json:"id"`
+	DisplayName string    `json:"display_name"`
+	Phone       string    `json:"-"`
+	PinHash     string    `json:"-"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type CreateClientSessionParams struct {
+	TokenHash string
+	ClientID  string
+	ExpiresAt time.Time
+}
+
+// Client ticket statuses (client_tickets.status) and modes.
+const (
+	TicketOpen      = "open"
+	TicketReserved  = "reserved"
+	TicketClosed    = "closed"
+	TicketOnce      = "once"
+	TicketScheduled = "scheduled"
+)
+
+type ClientTicket struct {
+	ID               string    `json:"id"`
+	ClientID         string    `json:"client_id"`
+	EnquiryID        string    `json:"enquiry_id"`
+	ScheduleID       *string   `json:"schedule_id"`
+	Mode             string    `json:"mode"`
+	PickupWindow     string    `json:"pickup_window"`
+	Status           string    `json:"status"`
+	ReservedBranchID *string   `json:"reserved_branch_id"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+type CreateClientTicketParams struct {
+	ClientID     string
+	EnquiryID    string
+	ScheduleID   *string
+	Mode         string
+	PickupWindow string
+}
+
+type MedicineSchedule struct {
+	ID           string    `json:"id"`
+	ClientID     string    `json:"client_id"`
+	MedicationID string    `json:"medication_id"`
+	Quantity     int       `json:"quantity"`
+	Every        string    `json:"every"`   // week | 2weeks | month
+	Weekday      int       `json:"weekday"` // 0 = Sunday
+	PickupWindow string    `json:"pickup_window"`
+	NoBulk       bool      `json:"no_bulk"`
+	Status       string    `json:"status"` // active | paused
+	NextRunAt    time.Time `json:"next_run_at"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type CreateMedicineScheduleParams struct {
+	ClientID     string
+	MedicationID string
+	Quantity     int
+	Every        string
+	Weekday      int
+	PickupWindow string
+	NextRunAt    time.Time
+}
+
+// Package photo statuses (package_photos.status).
+const (
+	PhotoVerified = "verified"
+	PhotoFlagged  = "flagged"
+	PhotoMismatch = "mismatch"
+	PhotoRejected = "rejected"
+)
+
+type PackagePhoto struct {
+	ID                string     `json:"id"`
+	TargetID          string     `json:"target_id"`
+	BranchID          string     `json:"branch_id"`
+	StoragePath       string     `json:"-"`
+	ContentType       string     `json:"content_type"`
+	SizeBytes         int64      `json:"size_bytes"`
+	TypedCode         string     `json:"typed_code"`
+	TypedExpiryMonth  string     `json:"expiry_month"`
+	Status            string     `json:"status"`
+	GovMatch          bool       `json:"gov_match"`
+	DecidedBy         string     `json:"decided_by"`
+	Note              string     `json:"note"`
+	ReviewedByStaffID *string    `json:"reviewed_by_staff_id"`
+	AgentCode         string     `json:"agent_code"`
+	AgentExpiryMonth  string     `json:"agent_expiry_month"`
+	AgentConfidence   *float64   `json:"agent_confidence"`
+	ReadAt            *time.Time `json:"read_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+}
+
+// RecordPhotoAgentReadingParams stores the agent's reading and the rules' new
+// verdict. Only matches while decided_by = 'rules' (a human review is final).
+type RecordPhotoAgentReadingParams struct {
+	ID               string
+	AgentCode        string
+	AgentExpiryMonth string
+	AgentConfidence  float64
+	Status           string
+	GovMatch         bool
+	Note             string
+}
+
+type CreatePackagePhotoParams struct {
+	ID               string
+	TargetID         string
+	BranchID         string
+	StoragePath      string
+	ContentType      string
+	SizeBytes        int64
+	TypedCode        string
+	TypedExpiryMonth string
+	Status           string
+	GovMatch         bool
+	Note             string
+}
+
+type ReviewPackagePhotoParams struct {
+	ID                string
+	Status            string
+	Note              string
+	ReviewedByStaffID string
 }

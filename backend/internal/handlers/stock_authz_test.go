@@ -99,7 +99,7 @@ func TestReferenceAttackAgentOnStaffRoutes(t *testing.T) {
 	}
 }
 
-func multipartBody(t *testing.T, field, filename, partType string, data []byte) (string, []byte) {
+func p3aMultipart(t *testing.T, field, filename, partType string, data []byte) (string, []byte) {
 	t.Helper()
 	var b bytes.Buffer
 	mw := multipart.NewWriter(&b)
@@ -140,7 +140,7 @@ func TestUploadAttackWrongTypeOrSize(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			ct, body := multipartBody(t, c.field, c.name, c.partType, c.data)
+			ct, body := p3aMultipart(t, c.field, c.name, c.partType, c.data)
 			rec := p3aDo(t, h, http.MethodPost, "/api/v1/reference/documents", "Bearer staff-tok", ct, body)
 			p3aWant(t, rec, http.StatusBadRequest, "validation_failed")
 		})
@@ -151,7 +151,7 @@ func TestUploadAttackWrongTypeOrSize(t *testing.T) {
 	})
 	t.Run("body far over the limit", func(t *testing.T) {
 		big := strings.Repeat("A", services.MaxReferenceDocumentBytes+(2<<20))
-		ct, body := multipartBody(t, "document", "big.pdf", "application/pdf", []byte("%PDF-1.4\n"+big))
+		ct, body := p3aMultipart(t, "document", "big.pdf", "application/pdf", []byte("%PDF-1.4\n"+big))
 		rec := p3aDo(t, h, http.MethodPost, "/api/v1/reference/documents", "Bearer staff-tok", ct, body)
 		p3aWant(t, rec, http.StatusBadRequest, "validation_failed")
 	})

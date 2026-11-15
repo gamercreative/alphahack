@@ -51,6 +51,8 @@ type Config struct {
 	// Uploaded files (reference documents) live under UPLOAD_DIR/reference.
 	UploadDir string // UPLOAD_DIR, default "./uploads"
 
+	ScheduleInterval time.Duration // SCHEDULE_INTERVAL, default "30s": how often due client schedules are run
+
 	// Text to speech for simulated calls (POST /api/v1/speech).
 	// SPEECH_PROVIDER: say | azure | fake | off. Default: azure when AZURE_SPEECH_KEY is
 	// set, else say on macOS, else fake.

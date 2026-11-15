@@ -8,14 +8,17 @@ import (
 	"strings"
 	"testing"
 
-	"alphahack/internal/ai"
 	httpx "alphahack/internal/http"
 	"alphahack/internal/services"
 )
 
-func offersServer(t *testing.T, speech ai.Speech) http.Handler {
+func offersServer(t *testing.T, speechOn bool) http.Handler {
 	t.Helper()
-	svc := services.NewEnquiryService(enqAuthStore{}, services.EnquiryConfig{AgentToken: "test-agent-token", Speech: speech})
+	cfg := services.EnquiryConfig{AgentToken: "test-agent-token"}
+	if speechOn {
+		cfg.Speech = services.FakeSpeech()
+	}
+	svc := services.NewEnquiryService(enqAuthStore{}, cfg)
 	mux := http.NewServeMux()
 	New(Deps{Enquiry: svc}).Register(mux)
 	return httpx.NewRouter(mux)
@@ -33,17 +36,8 @@ func offersPost(t *testing.T, h http.Handler, path, authorization, body string) 
 	return rec
 }
 
-func fakeSpeech(t *testing.T) ai.Speech {
-	t.Helper()
-	sp, err := ai.NewSpeech(ai.SpeechOptions{Provider: "fake"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return sp
-}
-
 func TestOffersAttackNoOrBadCredential(t *testing.T) {
-	h := offersServer(t, fakeSpeech(t))
+	h := offersServer(t, true)
 	routes := []struct{ method, path string }{
 		{http.MethodPost, "/api/v1/targets/t1/offers"},
 		{http.MethodGet, "/api/v1/enquiries/e1/offers"},
@@ -64,7 +58,7 @@ func TestOffersAttackNoOrBadCredential(t *testing.T) {
 func TestOffersAttackAgentSetsDecision(t *testing.T) {
 	// decision and decided_by are not input fields: the decoder rejects them
 	// before the service runs (enqAuthStore would panic on any store call).
-	h := offersServer(t, nil)
+	h := offersServer(t, false)
 	for _, field := range []string{`"decision":"matches"`, `"decided_by":"human"`, `"reasons":[]`, `"source_text":"3ande 10"`} {
 		t.Run(field, func(t *testing.T) {
 			body := `{"in_stock":true,"evidence":{"in_stock":"3ande"},"confidence":0.9,` + field + `}`
@@ -77,7 +71,7 @@ func TestOffersAttackAgentSetsDecision(t *testing.T) {
 }
 
 func TestOffersAttackPriceNegativeHTTP(t *testing.T) {
-	h := offersServer(t, nil)
+	h := offersServer(t, false)
 	rec := offersPost(t, h, "/api/v1/targets/t1/offers", "Agent test-agent-token",
 		`{"price_cents":-100,"currency":"USD","evidence":{"price":"12$"},"confidence":0.9}`)
 	if rec.Code != http.StatusBadRequest || enqAuthErrorCode(t, rec) != "validation_failed" {
@@ -86,7 +80,7 @@ func TestOffersAttackPriceNegativeHTTP(t *testing.T) {
 }
 
 func TestSpeechAttackOversizedTextHTTP(t *testing.T) {
-	h := offersServer(t, fakeSpeech(t))
+	h := offersServer(t, true)
 	body := `{"text":"` + strings.Repeat("ب", 601) + `"}`
 	rec := offersPost(t, h, "/api/v1/speech", "Agent test-agent-token", body)
 	if rec.Code != http.StatusBadRequest || enqAuthErrorCode(t, rec) != "validation_failed" {
@@ -95,7 +89,7 @@ func TestSpeechAttackOversizedTextHTTP(t *testing.T) {
 }
 
 func TestSpeechAttackEmptyTextHTTP(t *testing.T) {
-	h := offersServer(t, fakeSpeech(t))
+	h := offersServer(t, true)
 	for _, body := range []string{`{"text":""}`, `{"text":"   "}`, `{}`} {
 		rec := offersPost(t, h, "/api/v1/speech", "Bearer staff-tok", body)
 		if rec.Code != http.StatusBadRequest || enqAuthErrorCode(t, rec) != "validation_failed" {
@@ -105,7 +99,7 @@ func TestSpeechAttackEmptyTextHTTP(t *testing.T) {
 }
 
 func TestSpeechReturnsAudio(t *testing.T) {
-	h := offersServer(t, fakeSpeech(t))
+	h := offersServer(t, true)
 	for _, authz := range []string{"Bearer staff-tok", "Agent test-agent-token"} {
 		rec := offersPost(t, h, "/api/v1/speech", authz, `{"text":"مرحبا","speaker":"pharmacy"}`)
 		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "audio/wav" ||
@@ -117,7 +111,7 @@ func TestSpeechReturnsAudio(t *testing.T) {
 }
 
 func TestSpeechOffIs409(t *testing.T) {
-	rec := offersPost(t, offersServer(t, nil), "/api/v1/speech", "Agent test-agent-token", `{"text":"hi"}`)
+	rec := offersPost(t, offersServer(t, false), "/api/v1/speech", "Agent test-agent-token", `{"text":"hi"}`)
 	if rec.Code != http.StatusConflict || enqAuthErrorCode(t, rec) != "conflict" {
 		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
 	}

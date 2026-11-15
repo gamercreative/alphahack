@@ -21,7 +21,18 @@ detail() { printf '      %s\n' "$1"; }
 psql_run() {
   if command -v psql >/dev/null 2>&1 && [ -n "${DATABASE_URL:-}" ]; then
     psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -X -q "$@"
+  elif [ -n "${DATABASE_URL:-}" ]; then
+    # No host psql: run it in a throwaway container against DATABASE_URL. A
+    # localhost URL is rewritten so the container reaches the host (Docker Desktop).
+    local url="$DATABASE_URL"
+    url="${url/@localhost/@host.docker.internal}"
+    url="${url/@127.0.0.1/@host.docker.internal}"
+    url="${url/:\/\/localhost/://host.docker.internal}"
+    url="${url/:\/\/127.0.0.1/://host.docker.internal}"
+    docker run --rm -i --add-host=host.docker.internal:host-gateway postgres:16 \
+      psql "$url" -v ON_ERROR_STOP=1 -X -q "$@"
   else
+    echo "psql_run: DATABASE_URL not set, using the docker compose db service" >&2
     docker compose exec -T db psql -U alphahack -d alphahack -v ON_ERROR_STOP=1 -X -q "$@"
   fi
 }

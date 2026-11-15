@@ -21,6 +21,16 @@ type SpeechInput struct {
 	Speaker string `json:"speaker"` // agent | pharmacy | "" (agent)
 }
 
+// FakeSpeech is the offline provider (a short silent WAV) for tests outside
+// internal/ai, e.g. handler tests, which may not import internal/ai.
+func FakeSpeech() ai.Speech {
+	sp, err := ai.NewSpeech(ai.SpeechOptions{Provider: "fake"})
+	if err != nil {
+		panic(err) // "fake" never fails
+	}
+	return sp
+}
+
 // Speak synthesizes one line of a simulated call for staff or the agent.
 func (s *EnquiryService) Speak(ctx context.Context, _ Actor, in SpeechInput) (ai.Audio, error) {
 	if s.cfg.Speech == nil {

@@ -563,6 +563,26 @@ function loadPublicCatalogue() {
   return publicCatalogueLoading;
 }
 
+// Government reference (public, live since migration 0007). Mapped to the demo adapter's shape.
+async function loadGovReference() {
+  try {
+    const res = await apiCall('GET', '/api/v1/reference/products?limit=100', undefined, false);
+    liveState.govReference = (res?.data || []).map(r => ({
+      code: r.code, regNo: r.reg_no, brandName: r.brand_name, ingredient: r.ingredient,
+      strength: r.strength, form: r.dosage_form, officialPriceCents: r.official_price_cents, source: r.source
+    }));
+  } catch { liveState.govReference = null; }
+  return liveState.govReference;
+}
+
+// Staff stock update for the signed-in branch (PUT, staff only; the agent is refused).
+async function saveLiveStock(medId, quantity) {
+  const branchId = liveSession?.branch?.id;
+  if (!branchId) throw new Error('Please log in to a pharmacy branch first.');
+  await apiCall('PUT', `/api/v1/branches/${encodeURIComponent(branchId)}/inventory/${encodeURIComponent(medId)}`, { quantity_on_hand: quantity });
+  await refreshLivePharmacyData();
+}
+
 // ---- Live SSE Stream + Clean Polling Fallback -------------------------------
 function closeLiveSSE() {
   if (liveState.sseSource) {

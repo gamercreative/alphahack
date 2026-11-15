@@ -274,5 +274,74 @@ speech_check "Agent $AGENT_TOKEN" 200 '{"text":"مرحبا، عندكن أوغم
 speech_check "Bearer $TOKEN_A" 400 '{"text":"hi","lang":"de"}'
 speech_check "" 401 '{"text":"hi"}'
 
+echo "== Government reference + stock + content filter"
+
+# Reference products: public read (agent ok), staff-only write.
+req GET "/api/v1/reference/products?ingredient=amoxicillin/clavulanate&form=tablet" 200
+body_has "/api/v1/reference/products" '"code":"6280000000001"'
+body_has "reference source label" '"source":"Demo seed, not real MoPH data"'
+wreq "Agent $AGENT_TOKEN" GET "/api/v1/reference/products?q=aug&strength=625mg&limit=5" 200
+body_has "/api/v1/reference/products?q=" '"strength":"625mg"'
+req GET "/api/v1/reference/products?limit=-1" 400 '' bad_request
+REF_CODE="628$(date +%s | tail -c 11 | head -c 10)"
+REF_ROW="{\"code\":\"$REF_CODE\",\"reg_no\":\"SMOKE-1\",\"brand_name\":\"Smoke $REF_CODE\",\"ingredient\":\"Smokeamine\",\"strength\":\"1mg\",\"dosage_form\":\"tablet\",\"official_price_cents\":100}"
+wreq "Agent $AGENT_TOKEN" POST /api/v1/reference/products 403 "$REF_ROW" agent_forbidden
+wreq "" POST /api/v1/reference/products 401 "$REF_ROW" unauthorized
+wreq "Bearer $TOKEN_A" POST /api/v1/reference/products 400 '{"code":"123","official_price_cents":1}' validation_failed
+wreq "Bearer $TOKEN_A" POST /api/v1/reference/products 201 "$REF_ROW"
+body_has "reference row source" '"source":"Staff entry"'
+wreq "Bearer $TOKEN_A" POST /api/v1/reference/products 409 "$REF_ROW" conflict
+
+# Reference documents: multipart field "document", content sniffed, staff only.
+# upload AUTH FILE TYPE EXPECTED_STATUS [EXPECTED_ERROR_CODE]
+upload() {
+  local auth="$1" file="$2" type="$3" want="$4" code="${5:-}" out status ok=1
+  local args=(-sS -m 60 -X POST "$BASE/api/v1/reference/documents" -F "document=@$file;type=$type")
+  if [ -n "$auth" ]; then args+=(-H "Authorization: $auth"); fi
+  out=$(curl "${args[@]}" -w $'\n%{http_code}')
+  status="${out##*$'\n'}"
+  BODY="${out%$'\n'*}"
+  [ "$status" = "$want" ] || ok=0
+  if [ -n "$code" ]; then
+    case "$BODY" in *"\"error\":{\"code\":\"$code\""*) ;; *) ok=0 ;; esac
+  fi
+  if [ "$ok" = 1 ]; then
+    PASS=$((PASS + 1)); printf 'PASS %-6s %-45s %s (%s)\n' POST /api/v1/reference/documents "$status" "$type"
+  else
+    FAIL=$((FAIL + 1)); printf 'FAIL %-6s %-45s got %s want %s %s\n     %s\n' POST /api/v1/reference/documents "$status" "$want" "$code" "$BODY"
+  fi
+}
+SMOKE_DIR="$(mktemp -d)"
+SMOKE_DOC="$SMOKE_DIR/reference.pdf"
+printf '%%PDF-1.4\n%% smoke reference document\n%%%%EOF\n' > "$SMOKE_DOC"
+upload "Bearer $TOKEN_A" "$SMOKE_DOC" application/pdf 201
+body_has "/api/v1/reference/documents" '"content_type":"application/pdf"'
+upload "Bearer $TOKEN_A" "$SMOKE_DOC" image/png 400 validation_failed
+upload "Agent $AGENT_TOKEN" "$SMOKE_DOC" application/pdf 403 agent_forbidden
+rm -rf "$SMOKE_DIR"
+wreq "Bearer $TOKEN_A" GET /api/v1/reference/documents 200
+wreq "Agent $AGENT_TOKEN" GET /api/v1/reference/documents 403 '' agent_forbidden
+
+# Staff stock update (own branch only; the agent never marks stock). Writes the
+# current quantity back so repeated runs leave the demo data as it was.
+wreq "" GET /api/v1/branches/branch-hamra/inventory 200
+CONCOR_QTY=$(printf '%s' "$BODY" | python3 -c 'import json,sys; d=[b for b in json.load(sys.stdin).get("data",[]) if b.get("medication_id")=="med-concor-5"]; print(d[0]["quantity_on_hand"] if d else 25)' 2>/dev/null)
+CONCOR_QTY="${CONCOR_QTY:-25}"
+wreq "Bearer $TOKEN_A" PUT /api/v1/branches/branch-hamra/inventory/med-concor-5 200 "{\"quantity_on_hand\":$CONCOR_QTY}"
+body_has "PUT /api/v1/branches/{id}/inventory/{medication_id}" "\"quantity_on_hand\":$CONCOR_QTY"
+wreq "Bearer $TOKEN_A" PUT /api/v1/branches/branch-achrafieh/inventory/med-concor-5 403 '{"quantity_on_hand":1}' forbidden
+wreq "Agent $AGENT_TOKEN" PUT /api/v1/branches/branch-hamra/inventory/med-concor-5 403 '{"quantity_on_hand":1}' agent_forbidden
+wreq "Bearer $TOKEN_A" PUT /api/v1/branches/branch-hamra/inventory/med-concor-5 400 '{"quantity_on_hand":-1}' validation_failed
+wreq "Bearer $TOKEN_A" PUT /api/v1/branches/branch-hamra/inventory/med-does-not-exist 404 '{"quantity_on_hand":1}' not_found
+
+# Content filter: agent text that recommends or names another medicine -> 422, nothing queued.
+wreq "Bearer $TOKEN_A" POST /api/v1/enquiries 201 '{"raw_request":"smoke: augmentin 1g filter","medication_id":"med-augmentin-1g","quantity":1,"handled_by":"agent"}'
+CF_ENQ_ID=$(json_field id)
+wreq "Agent $AGENT_TOKEN" POST "/api/v1/enquiries/$CF_ENQ_ID/notify" 422 '{"body":"I recommend Augmentin 625mg instead."}' content_filtered
+wreq "Agent $AGENT_TOKEN" POST "/api/v1/enquiries/$CF_ENQ_ID/clarification-request" 422 '{"question":"Would Brufen work for you?"}' content_filtered
+wreq "Agent $AGENT_TOKEN" GET "/api/v1/enquiries/$CF_ENQ_ID" 200
+body_has "content_filtered event" '"type":"content_filtered"'
+wreq "Bearer $TOKEN_A" POST "/api/v1/enquiries/$CF_ENQ_ID/close" 200 '{"outcome":"unable_to_confirm"}'
+
 echo "== $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

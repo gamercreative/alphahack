@@ -343,6 +343,34 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 
+  /api/v1/branches/{id}/inventory/{medication_id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - name: medication_id
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      summary: Staff sets the on-hand stock of one medicine at their own branch
+      description: "Who: staff at that branch only (another branch gets 403 forbidden; an agent token gets 403 agent_forbidden, so no tool marks stock). Sets quantity_on_hand on the soonest-expiring unexpired, unrecalled batch; when there is none, creates a batch with batch_number STAFF-UPDATE expiring in 18 months. 409 when the batch has more units reserved than the new quantity."
+      security: [{ StaffBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetStockInput" }
+      responses:
+        "200":
+          description: The updated or created batch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InventoryBatch" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
   /api/v1/medications:
     get:
       summary: List or search medications
@@ -806,7 +834,7 @@ paths:
       - $ref: "#/components/parameters/ID"
     post:
       summary: Agent asks the requester a clarifying question
-      description: "Who: agent only. A staff token gets 403 forbidden. Moves the enquiry to awaiting_clarification. Human clarification counts toward hitl_count."
+      description: "Who: agent only. A staff token gets 403 forbidden. Moves the enquiry to awaiting_clarification. Human clarification counts toward hitl_count. The question passes the same content filter as notify: blocked text gives 422 content_filtered, logs a content_filtered event and changes nothing else."
       security: [{ AgentToken: [] }]
       requestBody:
         required: true
@@ -824,6 +852,7 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
 
   /api/v1/enquiries/{id}/clarify:
     parameters:
@@ -1139,7 +1168,7 @@ paths:
       - $ref: "#/components/parameters/ID"
     post:
       summary: Queue a notification to the requester
-      description: "Who: staff or agent. Creates a notification outbox message to the requester branch."
+      description: "Who: staff or agent. Creates a notification outbox message to the requester branch. Agent text passes the content filter first: a recommendation or substitution phrase (EN/FR/Arabizi/AR) or a catalogue medicine other than the requested one, the requester's own words or what a pharmacy replied gives 422 content_filtered with a teaching message, logs a content_filtered event (actor system/rules) and queues nothing. Staff text is not filtered."
       security: [{ StaffBearer: [] }, { AgentToken: [] }]
       requestBody:
         required: true
@@ -1157,6 +1186,7 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
 
   /api/v1/enquiries/{id}/wait:
     parameters:
@@ -1359,6 +1389,98 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /api/v1/reference/products:
+    get:
+      summary: Search the government reference list (information only)
+      description: "Who: public (staff and agent too). Rows seeded by migration 0007 carry source 'Demo seed, not real MoPH data'. ingredient, strength and form are case-insensitive exact filters; q matches part of brand_name or ingredient. Reading the list never decides equivalence."
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: ingredient, in: query, schema: { type: string, maxLength: 200 }, example: Amoxicillin/Clavulanate }
+        - { name: strength, in: query, schema: { type: string, maxLength: 200 }, example: 1000mg }
+        - { name: form, in: query, schema: { type: string, maxLength: 200 }, example: tablet }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/GovProduct" }
+        "400": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Staff adds a reference product
+      description: "Who: staff only (agent token gets 403 agent_forbidden). 409 conflict when the code, or the same brand + ingredient + strength + form, already exists. 400 when document_id is not an uploaded reference document."
+      security: [{ StaffBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateGovProductInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GovProduct" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/v1/reference/documents:
+    get:
+      summary: List uploaded reference documents, newest first
+      description: "Who: staff only (agent token gets 403 agent_forbidden)."
+      security: [{ StaffBearer: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListMeta"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/ReferenceDocument" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      summary: Staff uploads a reference document (PDF, PNG or JPEG, max 10 MB)
+      description: "Who: staff only (agent token gets 403 agent_forbidden). The content type is sniffed from the bytes; a file whose declared type differs from its content, or that is not PDF/PNG/JPEG, gets 400 validation_failed. Stored under UPLOAD_DIR/reference/<id><ext> with its sha256. No automatic parsing: a reviewer adds rows with POST /api/v1/reference/products."
+      security: [{ StaffBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [document]
+              properties:
+                document: { type: string, format: binary }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferenceDocument" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
 components:
   parameters:
     ID:
@@ -1402,6 +1524,10 @@ components:
                 - internal_error
                 - upstream_error
                 - timeout
+                - unauthorized
+                - forbidden
+                - agent_forbidden
+                - content_filtered
             message: { type: string }
             request_id: { type: string }
 
@@ -1553,6 +1679,54 @@ components:
           items: { type: string }
         description: { type: string }
         created_at: { type: string, format: date-time }
+
+    GovProduct:
+      type: object
+      required: [code, reg_no, brand_name, ingredient, strength, dosage_form, official_price_cents, source, document_id, created_at]
+      properties:
+        code: { type: string, pattern: "^[0-9]{13}$" }
+        reg_no: { type: string }
+        brand_name: { type: string }
+        ingredient: { type: string, description: "Combined ingredients joined with /" }
+        strength: { type: string, example: 1000mg }
+        dosage_form: { type: string, example: tablet }
+        official_price_cents: { type: integer, format: int64, minimum: 0 }
+        source: { type: string, example: "Demo seed, not real MoPH data" }
+        document_id: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    CreateGovProductInput:
+      type: object
+      additionalProperties: false
+      required: [code, reg_no, brand_name, ingredient, strength, dosage_form, official_price_cents]
+      properties:
+        code: { type: string, pattern: "^[0-9]{13}$" }
+        reg_no: { type: string, maxLength: 200 }
+        brand_name: { type: string, maxLength: 200 }
+        ingredient: { type: string, maxLength: 200 }
+        strength: { type: string, maxLength: 200 }
+        dosage_form: { type: string, maxLength: 200, description: "Stored lowercased" }
+        official_price_cents: { type: integer, format: int64, minimum: 0 }
+        source: { type: string, maxLength: 200, description: "Default 'Staff entry'" }
+        document_id: { type: string, nullable: true, description: "An uploaded reference document" }
+
+    ReferenceDocument:
+      type: object
+      required: [id, name, content_type, size_bytes, sha256, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        content_type: { type: string, enum: [application/pdf, image/png, image/jpeg] }
+        size_bytes: { type: integer, format: int64 }
+        sha256: { type: string, description: "Hex sha256 of the stored file" }
+        created_at: { type: string, format: date-time }
+
+    SetStockInput:
+      type: object
+      additionalProperties: false
+      required: [quantity_on_hand]
+      properties:
+        quantity_on_hand: { type: integer, minimum: 0, maximum: 1000000 }
 
     InventoryBatch:
       type: object

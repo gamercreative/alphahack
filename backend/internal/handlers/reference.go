@@ -54,19 +54,19 @@ func (h *Handlers) createReferenceProduct(w http.ResponseWriter, r *http.Request
 func (h *Handlers) uploadReferenceDocument(w http.ResponseWriter, r *http.Request) {
 	const fieldHelp = `send multipart/form-data with the file in a field named "document" (PDF, PNG or JPEG, max 10 MB)`
 	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "multipart/form-data" {
-		h.fail(w, r, services.Invalid(fieldHelp))
+		h.fail(w, r, services.Invalid("%s", fieldHelp))
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, services.MaxReferenceDocumentBytes+(1<<20))
 	mr, err := r.MultipartReader()
 	if err != nil {
-		h.fail(w, r, services.Invalid(fieldHelp))
+		h.fail(w, r, services.Invalid("%s", fieldHelp))
 		return
 	}
 	for {
 		part, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
-			h.fail(w, r, services.Invalid(`no field named "document"; `+fieldHelp))
+			h.fail(w, r, services.Invalid(`no field named "document"; %s`, fieldHelp))
 			return
 		}
 		if err != nil {
@@ -102,7 +102,7 @@ func uploadReadError(err error, help string) error {
 	if errors.As(err, &tooBig) || strings.Contains(err.Error(), "request body too large") {
 		return services.Invalid("the upload is larger than 10 MB; upload a smaller or compressed file")
 	}
-	return services.Invalid("could not read the upload; " + help)
+	return services.Invalid("could not read the upload; %s", help)
 }
 
 func (h *Handlers) listReferenceDocuments(w http.ResponseWriter, r *http.Request) {

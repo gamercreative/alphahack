@@ -444,7 +444,8 @@ function wzPharmTicketPage(ticketId) {
   const branchId = liveSession?.branch?.id;
   const ticket = wzHasDemo() ? DemoAdapter.getTicket(ticketId) : null;
   if (!ticket || !branchId) return '<div class="wz-page narrow"><div class="wz-empty">' + wzT('Ticket not found.', 'الطلب غير موجود.') + '</div></div>';
-  const stockNow = DemoAdapter.getStock(branchId, ticket.med.id);
+  const liveStock = (liveState.branchInventory || []).length ? availableStockForMed(ticket.med.id) : null;
+  const stockNow = liveStock !== null ? liveStock : DemoAdapter.getStock(branchId, ticket.med.id);
   const q = ticket.quantity;
   const price = (ticket.med.unitPriceCents / 100 * 0.9).toFixed(0);
   return '<div class="wz-page narrow">' +
@@ -481,13 +482,18 @@ function wzPharmTicketPage(ticketId) {
 }
 
 function wzReferencePage() {
-  const rows = wzHasDemo() ? DemoAdapter.govReference() : [];
+  if (liveState.govReference === undefined && typeof loadGovReference === 'function') {
+    liveState.govReference = null;
+    loadGovReference().then(rows => { if (rows && page[1] === 'reference') wzRefreshDesk(); });
+  }
+  const live = Array.isArray(liveState.govReference) && liveState.govReference.length;
+  const rows = live ? liveState.govReference : (wzHasDemo() ? DemoAdapter.govReference() : []);
   const docs = wzHasDemo() ? DemoAdapter.listReferenceDocs() : [];
   return '<div class="wz-page">' +
     '<section class="wz-greet card">' + wzAvatar('md') + '<div class="wz-bubble"><p>' +
       wzT('The rules compare every dose equivalent and box photo against this reference. Upload an official price list or leaflet to add to it.',
           'تقارن القواعد كل جرعة مكافئة وصورة علبة بهذا المرجع. ارفع لائحة أسعار رسمية أو نشرة لإضافتها.') + '</p></div></section>' +
-    '<div class="demo-sim-banner"><div>' + chip('Demo seed', 'demo-badge') + ' ' + wzT('Seeded demo data, not real Ministry of Public Health records.', 'بيانات تجريبية، ليست سجلات وزارة الصحة الحقيقية.') + '</div></div>' +
+    '<div class="demo-sim-banner"><div>' + chip(live ? 'Live · demo seed' : 'Demo seed', 'demo-badge') + ' ' + wzT((live ? 'From the backend (GET /api/v1/reference/products). ' : '') + 'Seeded demo data, not real Ministry of Public Health records.', 'بيانات تجريبية، ليست سجلات وزارة الصحة الحقيقية.') + '</div></div>' +
     '<form class="row wz-form" id="wz-doc-form" style="margin:14px 0">' +
       '<label class="field" style="flex:1">' + wzT('Official document (PDF or image)', 'مستند رسمي (PDF أو صورة)') + '<input type="file" name="doc" accept="application/pdf,image/*" required></label>' +
       '<button class="btn secondary small" type="submit">' + wzT('Upload', 'رفع') + '</button></form>' +
@@ -597,6 +603,12 @@ document.addEventListener('submit', e => {
       const qty = Number(new FormData(form).get('qty'));
       if (!branchId || !Number.isFinite(qty)) return;
       DemoAdapter.setStock(branchId, form.dataset.med, qty);
+      if (typeof saveLiveStock === 'function') {
+        saveLiveStock(form.dataset.med, qty)
+          .then(() => { status(wzT('Stock saved on the backend', 'تم حفظ المخزون في الخادم')); wzRefreshDesk(); })
+          .catch(err => status(wzT('Stock not saved: ', 'لم يتم حفظ المخزون: ') + err.message));
+        return;
+      }
       status(wzT('Stock saved', 'تم حفظ المخزون'));
       break;
     }

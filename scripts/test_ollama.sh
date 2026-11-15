@@ -7,7 +7,7 @@
 #        MODEL=gemma4:31b bash scripts/test_ollama.sh
 set -uo pipefail
 
-OLLAMA="${OLLAMA:-http://192.168.1.108:11434}"
+OLLAMA="${OLLAMA:-http://10.31.216.24:11434}"
 MODEL="${MODEL:-qwen3.5:35b-a3b}"
 PY=python3
 pass=0; fail=0

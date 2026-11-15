@@ -1,10 +1,60 @@
-# Wassit demo: judge run order (5 to 7 minutes)
+# DOSYN / Wassit demo
+
+Two demos. The 3-minute judge demo of the new UI comes first. The pharmacist enquiry demo
+(terminal, 5 to 7 minutes) is below it.
+
+## 3-minute judge demo (new UI)
+
+Setup: backend running (see Terminal layout below), then
+`python3.13 -m http.server 5500 --directory web`. `web/index.html` must point at the backend URL.
+Client tickets, schedules and photo checks run on the demo adapter (`web/wassit-demo.js`,
+labelled in the UI). Pharmacist enquiries are live.
+
+**Client (about 1.5 min)**
+
+1. Open <http://localhost:5500/#client/home>.
+2. Search "Augmentin". Pick 1000mg, 2 boxes, "Just once", "Today before 18:00". Press Send.
+3. Watch the ticket fill in:
+   - outreach to several pharmacies at once
+   - a decline
+   - an offer card with the pharmacy's own words highlighted as quotes
+   - a dose equivalent accepted by the rules (2 x 500mg = 1 x 1000mg)
+   - a dose equivalent rejected by the rules
+   - a verified photo
+   - a blurry photo sent to a human
+   - "no response" for the silent pharmacy (never "unavailable")
+   - the best verified offer
+4. Press Reserve.
+
+Say: "Every line shows who decided: Rules, Human or Pharmacy. It never says the AI decided."
+
+**Pharmacist (about 1 min)**
+
+1. Switch to Pharmacist view. Choose Hamra (A).
+2. Open Client tickets, then open the ticket. The client's identity is not shown.
+3. Reply: `eh 3ande 2 3elab, 10$ el 3elbe, expiry 09/2027`
+4. Upload a package photo.
+5. Hamra becomes the best offer.
+
+Say: "The reply was free-text Arabizi. Wassit read it into an offer. The rules ranked it."
+
+**Scheduled medicines (about 20 s)**
+
+Back on "Ask Wassit", pick Concor 5mg, 1 box, then "Every week", "Friday" and a pickup time, and Send. A ticket opens for this cycle. Open "Scheduled medicines": the card shows FRI, "No bulk", the next search time and the ticket history.
+
+**Arabic (about 10 s)**
+
+Switch the language to العربية. The whole UI turns right to left.
+
+---
+
+## Pharmacist enquiry demo: judge run order (5 to 7 minutes)
 
 Wassit is a pharmacist-to-pharmacist medicine availability enquiry system. A person can run it
 by hand; Wassit (an agent) runs the same workflow through the same API. Code decides what is
 allowed. The model only decides what to do next. The agent never says "available".
 
-## Prerequisites
+### Prerequisites
 
 - Docker Desktop running (Postgres 16 for the backend).
 - Ollama on the host with the model: `ollama pull qwen3.5:35b-a3b`.
@@ -13,7 +63,7 @@ allowed. The model only decides what to do next. The agent never says "available
   `cd agent && python3.13 -m venv .venv && .venv/bin/pip install "cornilia @ git+https://github.com/gamercreative/Cornilia.git@v0.1.0" pytest`
 - Backend config, once: `cd backend && cp -n .env.example .env`.
 
-## Terminal layout
+### Terminal layout
 
 | Terminal | Command (from the project root unless shown) |
 | --- | --- |
@@ -28,7 +78,7 @@ the stats totals). It only reads.
 Terminal 3 is not needed if you use `python3.13 scripts/demo_flow.py --drive-agent`, which runs
 one agent pass per poll itself.
 
-## The four parts
+### The four parts
 
 Press Enter to move between steps. Each step prints one narration line and an event timeline.
 
@@ -54,14 +104,14 @@ Where to look:
   original `messages_queued` event.
 - **Cost:** Part 4 (per enquiry, and totals). Cost is micro-dollars in the API and USD in the table.
 
-## Agent evaluation (optional, after the demo)
+### Agent evaluation (optional, after the demo)
 
 - 20 test cases with the model: `python3.13 scripts/run_cases.py --policy model`
 - The same 20 cases with the fallback policy: `python3.13 scripts/run_cases.py --policy scripted`
 
 Both print one results table.
 
-## If the model is slow or down
+### If the model is slow or down
 
 Use the scripted policy. It runs the same tools through the same API without a model, so every
 state change, rule and count still happens. It is deterministic, so the outcome is the same every time:
@@ -75,7 +125,7 @@ the API and the numbers are the same."
 
 If the backend is down, see the start commands printed by `bash scripts/seed_demo.sh`.
 
-## Logins (PIN 1234 for all)
+### Logins (PIN 1234 for all)
 
 | Email | Pharmacy | Role in the demo |
 | --- | --- | --- |
@@ -85,7 +135,7 @@ If the backend is down, see the start commands printed by `bash scripts/seed_dem
 | d@wassit.demo | Verdun | Target (D), stays silent |
 | e@wassit.demo | Byblos | Not used in the demo |
 
-## Notes for the presenter
+### Notes for the presenter
 
 - The backend has no auth beyond staff PINs and the agent token. Run it on your laptop only.
 - Demo timing uses `UNDO_WINDOW=3s` and `WAIT_UNIT=2s`. Production defaults are 60s and 1m.

@@ -8,8 +8,10 @@
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="wassit.css">
   <script>
-    window.VITE_API_BASE_URL = window.VITE_API_BASE_URL || 'http://10.31.216.148:8113';
-    window.NEXT_PUBLIC_API_BASE_URL = window.NEXT_PUBLIC_API_BASE_URL || 'http://10.31.216.148:8113';
+    // Served by scripts/serve_lan.py (port 5600): the API is on the same address, so other devices work.
+    var wassitApi = location.port === '5600' ? location.origin : 'http://10.31.216.148:8113';
+    window.VITE_API_BASE_URL = window.VITE_API_BASE_URL || wassitApi;
+    window.NEXT_PUBLIC_API_BASE_URL = window.NEXT_PUBLIC_API_BASE_URL || wassitApi;
   </script>
   <script defer src="wassit-ui.js"></script>
   <script defer src="app.js"></script>

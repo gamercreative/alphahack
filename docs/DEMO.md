@@ -7,8 +7,9 @@ Two demos. The 3-minute judge demo of the new UI comes first. The pharmacist enq
 
 Setup: backend running (see Terminal layout below), then
 `python3.13 -m http.server 5500 --directory web`. `web/index.html` must point at the backend URL.
-Client tickets, schedules and photo checks run on the demo adapter (`web/wassit-demo.js`,
-labelled in the UI). Pharmacist enquiries are live.
+Client tickets, schedules, photo checks and pharmacist enquiries all use the live API. The old
+demo adapter (`web/wassit-demo.js`) was removed; the client side uses the live API. Client login:
+phone `+96170000000`, PIN `1234`.
 
 **Client (about 1.5 min)**
 

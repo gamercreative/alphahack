@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: backend/go.sum
+      - name: Build, vet, test
+        working-directory: backend
+        run: go build ./... && go vet ./... && go test ./...
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: pip install "cornilia @ git+https://github.com/gamercreative/Cornilia.git@v0.1.0" pytest
+      - name: Agent and repo tests
+        run: pytest -q agent/tests tests
+      - name: Frontend/backend route sync
+        run: python scripts/check_frontend_sync.py --static
+
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: JS syntax
+        run: for f in web/*.js; do node --check "$f"; done
+      - name: Shell syntax
+        run: for f in scripts/*.sh; do bash -n "$f"; done

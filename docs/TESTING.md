@@ -21,7 +21,7 @@ table and keeps each check's full output in `.dev/logs/verify/`. Live checks run
 | Acceptance | `python3.13 scripts/acceptance.py` | running backend | The acceptance checks of `CONTRACT.md` |
 | Agent cases | `python3.13 scripts/run_cases.py`, then `scripts/show_results.py` | running backend | The cases in `agent/cases/cases.jsonl`; committed tables in `agent/cases/results*.md` |
 | Model path | `bash scripts/test_ollama.sh` | Ollama on the LAN | Both API shapes (native and `/v1`) answer, and an Arabizi alternative is not read as a match |
-| Demo adapter smoke | open <http://localhost:5500/#client/home>, send one request, reload | static web server | The adapter (`web/wassit-demo.js`) persists a ticket in `localStorage` key `dosyn-demo-v2` with no backend. Manual; flow in `docs/DEMO.md` |
+| Client smoke | `bash scripts/smoke_client.sh`, or open <http://localhost:5500/#client/home>, log in, send one request, reload | running backend | A client ticket is stored by the backend and survives a reload. The old demo adapter (`web/wassit-demo.js`) was removed; the client side uses the live API. Flow in `docs/DEMO.md` |
 
 Run `--help` on the Python scripts for their flags. AGENTS.md rule: no benchmarks or long model
 runs during the event; tests mock the model.

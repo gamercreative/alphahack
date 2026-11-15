@@ -95,7 +95,7 @@ bash scripts/dev_down.sh            # stop what dev_up started (add --keep-db to
 | 1 | `git clone <repo> && cd alphahack` | repo root with `backend/`, `agent/`, `web/` |
 | 2 | `(cd backend && cp -n .env.example .env)` | `backend/.env` exists (git-ignored) |
 | 3 | `(cd backend && make up)` | `Container ...-db-1  Healthy` |
-| 4 | `(cd backend && make migrate)` | `apply  0001_init` through `apply  0007_gov_reference`, then `migrate up: done`. A second run prints `skip ... (already applied)` |
+| 4 | `(cd backend && make migrate)` | `apply  0001_init` through `apply  0010_package_photos`, then `migrate up: done`. A second run prints `skip ... (already applied)` |
 | 5 | `(cd backend && make run)` (keep this terminal open) | server log line with the listen port |
 | 6 | `curl localhost:8080/healthz` | HTTP 200 JSON |
 | 7 | `PYTHON=python3.13 bash scripts/seed_demo.sh` | health ok, demo logins `a` to `d` at `@wassit.demo` succeed (PIN `1234`), stats totals. Read-only |
@@ -103,7 +103,7 @@ bash scripts/dev_down.sh            # stop what dev_up started (add --keep-db to
 | 9 | `(cd agent && .venv/bin/python -m pytest -q)` | all tests pass, no network used |
 | 10 | `(cd agent && .venv/bin/python runner.py --policy scripted)` or, with Ollama, `(cd agent && cp -n .env.example .env)`, edit to the Ollama lines, then `.venv/bin/python runner.py` | the runner polls `GET /api/v1/agent/wakeups` every 3 s |
 | 11 | `python3.13 -m http.server 5500 --directory web` | `Serving HTTP on :: port 5500` |
-| 12 | set `window.VITE_API_BASE_URL` in `web/index.html` to `http://localhost:8080`, open <http://localhost:5500/#client/home> | DOSYN client home; client data is the labelled demo adapter |
+| 12 | set `window.VITE_API_BASE_URL` in `web/index.html` to `http://localhost:8080`, open <http://localhost:5500/#client/home> | DOSYN client home on the live API; log in with phone `+96170000000`, PIN `1234` |
 | 13 | `python3.13 scripts/demo_flow.py` (add `--drive-agent --policy scripted` to run without step 10) | narrated pharmacist enquiry demo, see `docs/DEMO.md` |
 
 For demo timing start the backend with `UNDO_WINDOW=3s WAIT_UNIT=2s`, as the live instance does.
@@ -125,7 +125,7 @@ path: backend native API, Cornilia OpenAI API, and the Arabizi "alternative is n
 | Agent replies time out with Ollama | wrong base URL shape | Cornilia: ends in `/v1`. Backend: no `/v1` |
 | `ModuleNotFoundError: cornilia` | system `python3` used | use `agent/.venv/bin/python` |
 | Undo window too long for a demo | default 60 s | `UNDO_WINDOW=3s` |
-| Client tickets vanish | demo adapter data is in `localStorage` key `dosyn-demo-v2` | expected; clear the key to reset the demo |
+| Client tickets vanish | wrong backend, or the client session expired | check `window.VITE_API_BASE_URL`, log in again. The old demo adapter (`web/wassit-demo.js`) was removed; the client side uses the live API |
 | `POST /api/v1/speech` returns 409 | speech is off | `SPEECH_PROVIDER=say` on macOS, or `fake` |
 
 ## 7. Reset

@@ -130,7 +130,23 @@ All are registered through the `h.staffPharmacy` wrapper in `backend/internal/ha
 | GET | `/v1/conversations/{id}/runs`, `/v1/runs/{id}` | run and tool-call trace |
 | GET | `/v1/tools` | the backend's Go tools |
 
-## Not built (Phase 3B)
+## Client and photo routes (Phase 3B, live)
 
-Client accounts, client tickets, schedules and photo checks have no routes yet. Their design is in
-`documents/CONTRACT_PROPOSAL_dosyn_redesign.md`; the UI uses `web/wassit-demo.js` until then.
+| Method | Path | Who | Notes |
+| --- | --- | --- | --- |
+| POST | `/api/v1/client/auth/login` | anyone | `{phone, pin}`, returns a 12 h client session token |
+| GET | `/api/v1/client/me` | client | |
+| POST, GET | `/api/v1/client/tickets` | client | create a ticket (one client-desk enquiry); list |
+| GET | `/api/v1/client/tickets/{id}` | client | thread and best offer, built from enquiry events |
+| GET | `/api/v1/client/tickets/{id}/stream` | client | SSE |
+| POST | `/api/v1/client/tickets/{id}/reserve` | client | reserve the best verified offer |
+| GET, POST | `/api/v1/client/schedules` | client | list; create (for example every Friday) |
+| PATCH | `/api/v1/client/schedules/{id}` | client | |
+| POST | `/api/v1/client/schedules/{id}/run` | client | run one cycle now |
+| POST | `/api/v1/targets/{id}/photos` | staff (target pharmacist) | package photo with typed code and expiry |
+| POST | `/api/v1/photos/{id}/agent-reading` | agent | the agent's reading of the photo; Go compares |
+| POST | `/api/v1/photos/{id}/review` | staff with role `reviewer` | human decision on an unclear photo |
+| GET | `/api/v1/photos/{id}/file` | any signed-in actor | the image |
+
+Schemas: `backend/openapi.yaml`. Design notes: `documents/CONTRACT_PROPOSAL_dosyn_redesign.md`.
+The old demo adapter (`web/wassit-demo.js`) was removed; the client side uses the live API.

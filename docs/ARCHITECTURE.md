@@ -7,20 +7,18 @@ Code decides what is allowed. The model only decides what to do next.
 | Component | Path | Tech | Role | Port |
 | --- | --- | --- | --- | --- |
 | Backend | `backend/` | Go 1.25, stdlib router, pgx, hand-written SQL | REST API, all product rules, outbox dispatcher, SSE | 8080 (demo 8113) |
-| Database | `backend/db/` | PostgreSQL 16 in Docker, migrations 0001 to 0007 | storage | 5432 (demo 5573) |
+| Database | `backend/db/` | PostgreSQL 16 in Docker, migrations 0001 to 0010 | storage | 5432 (demo 5573) |
 | Agent | `agent/` | Python 3.13, Cornilia v0.1.0 | polls wakeups, one tool loop per enquiry, acts only over HTTP with its own credential | none (client only) |
 | Model | external | Ollama `qwen3.5:35b-a3b`, thinking off | chooses the next tool call | 11434 |
-| Web | `web/` | static HTML, CSS, JS | pharmacist UI on the live API; client UI on the demo adapter | 5500 |
+| Web | `web/` | static HTML, CSS, JS | pharmacist and client UI, both on the live API | 5500 |
 | Guard | `cornilia-guard/` | Go gateway + Python package | signed tool calls; not mounted yet, the agent uses `AGENT_TOKEN` | |
 
 ```mermaid
 flowchart LR
   subgraph Browser
     UI[web/app.js + wassit-ui.js]
-    DEMO[web/wassit-demo.js<br/>localStorage dosyn-demo-v2]
   end
   UI -- "REST + SSE, Bearer token" --> API[Go backend]
-  UI -. "client tickets, schedules, photos (demo)" .-> DEMO
   RUN[agent/runner.py + Cornilia] -- "REST, Agent token" --> API
   RUN -- "OpenAI API /v1" --> OLL[Ollama qwen3.5:35b-a3b]
   API --> PG[(PostgreSQL 16)]
@@ -98,20 +96,26 @@ flowchart TD
 `target_offers.decision` is `matches | escalated | rejected` and is set in Go. The model never
 ranks offers and never marks an equivalent.
 
-## Flow 4: client ticket (demo adapter today, Phase 3B design)
+## Flow 4: client ticket (live, Phase 3B)
 
 ```mermaid
 sequenceDiagram
   participant C as Client (web)
-  participant D as Demo adapter (wassit-demo.js)
-  participant API as Go backend (Phase 3B, not built)
-  C->>D: search, pick medicine and quantity, send one request
-  D->>D: create ticket in localStorage (dosyn-demo-v2)
-  D-->>C: simulated outreach, offers, equivalence, photo checks, best offer
-  Note over D,API: Phase 3B replaces each adapter method with an apiCall.<br/>Tickets become enquiries from the "DOSYN client desk",<br/>so pharmacies never see client identity.
+  participant API as Go backend
+  participant AG as Agent
+  participant P as Target pharmacists
+  C->>API: POST /api/v1/client/tickets (one request or a schedule)
+  API->>AG: wakeup: new client-desk enquiry
+  AG->>API: propose nearest pharmacies (Go auto-approves ranked candidates)
+  API->>P: outbox sends as "DOSYN client desk" after the undo window
+  P->>API: free-text replies, package photos
+  AG->>API: record_offer, photo reading
+  API-->>C: SSE thread, best verified offer (Go)
+  C->>API: POST /api/v1/client/tickets/{id}/reserve
 ```
 
-The UI labels this data as demo. Design: `documents/CONTRACT_PROPOSAL_dosyn_redesign.md`.
+Tickets are enquiries from the "DOSYN client desk", so pharmacies never see client identity.
+The old demo adapter (`web/wassit-demo.js`) was removed; the client side uses the live API.
 
 ## Data model
 
@@ -124,6 +128,9 @@ Source: `backend/db/migrations/` (authoritative) and `backend/db/schema.dbml`.
 | Wassit enquiries | `staff`, `staff_sessions`, `enquiries`, `enquiry_targets`, `outbox_messages`, `enquiry_events`, `enquiry_agent_runs`, `enquiry_agent_tool_calls`; `branches` gains `lat`, `lng`, `participating` | 0004, seed 0005 |
 | Offers | `target_offers` (structured offer per target, evidence, confidence, `decision`) | 0006 |
 | Government reference | `gov_products`, `reference_documents` | 0007 |
+| Clients | `clients`, `client_sessions`; desk branch and demo client seed | 0008 |
+| Schedules and tickets | `medicine_schedules`, `client_tickets` | 0009 |
+| Package photos | `package_photos` (typed code and expiry, agent reading, decision) | 0010 |
 
 Chain: `enquiries -> enquiry_targets -> target_offers`; `enquiries -> outbox_messages`;
 `enquiries -> enquiry_events` (append-only, with a stored inverse where reversible);
@@ -148,7 +155,7 @@ Rule numbers are from `CONTRACT.md`.
 | 7. Agent works from DB data; asks when ambiguous | `agent/tools/catalogue.py`, `agent/tools/enquiry.py` (`ask_requester`) | tools only reach the backend API |
 | 8. Client identity hidden; customers out of scope | no agent tool reads customer routes (`agent/tools/`); Phase 3B "client desk" design | |
 | 9. Content filter | `services/content_filter.go` | 422 `content_filtered`, nothing stored or sent |
-| 10. Photo is evidence, not proof | UI text and demo adapter (`web/wassit-ui.js`, `web/wassit-demo.js`); reference lookup in `services/reference.go` | photo upload route is Phase 3B |
+| 10. Photo is evidence, not proof | `services/photos.go`; reference lookup in `services/reference.go`; UI text in `web/wassit-ui.js` | code and expiry checked in Go; unclear photos wait for a staff reviewer |
 | 11. Best offer in Go | `services/client_best.go` (`PickBestOffer`) | verified offers only: lowest total, then latest expiry |
 
 Other fixed points: auth middleware and route tags in `backend/internal/handlers/`

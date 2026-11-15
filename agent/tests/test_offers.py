@@ -52,7 +52,7 @@ def test_record_offer_passes_backend_error_to_the_model(fake):
 
 def test_record_offer_caps_reasons(fake):
     fake({"id": "o2", "decision": "escalated", "reasons": [f"r{i}" * 300 for i in range(10)]})
-    out = offers.record_offer.function(target_id="T1", evidence={}, confidence=0.5, payment="cash")
+    out = offers.record_offer.function(target_id="T1", evidence={"payment": "cash"}, confidence=0.5, payment="cash")
     assert len(out["reasons"]) == 6 and all(len(r) <= 200 for r in out["reasons"])
 
 

@@ -30,6 +30,10 @@ def backend(monkeypatch):
     return install
 
 
+def _delivered(*tids):
+    return [{"target_id": t, "kind": "enquiry", "status": "sent"} for t in tids]
+
+
 def _detail(status="waiting", targets=(), events=(), next_wake_at=None, desk=False, messages=(), photos=None):
     d = {"enquiry": {"id": "e1", "status": status, "raw_request": "Augmentin 1000mg", "quantity": 1,
                      "next_wake_at": next_wake_at,
@@ -97,16 +101,17 @@ def test_escalated_already_notified_moves_on_to_close():
 
 def test_chase_after_follow_up_and_fired_wait_marks_no_response_now():
     events = [{"seq": 5, "type": "follow_up_queued"}, {"seq": 7, "type": "wait_set"}]
-    out = enquiry._compact_enquiry(_detail(targets=[_t("t1", "sent", follow_ups=1)], events=events))
+    out = enquiry._compact_enquiry(_detail(targets=[_t("t1", "sent", follow_ups=1)], events=events, messages=_delivered("t1")))
     assert out["next_step"].startswith("Followed up and waited with no reply: mark_no_response t1")
     assert "_waited_after_follow_up" not in out
 
 
 def test_chase_after_follow_up_without_wait_waits():
     events = [{"seq": 7, "type": "wait_set"}, {"seq": 9, "type": "follow_up_queued"}]
-    out = enquiry._compact_enquiry(_detail(targets=[_t("t1", "sent", follow_ups=1)], events=events))
-    assert out["next_step"] == "Followed up already, but no wait since: call wait(5) now."
-    pending_timer = _detail(targets=[_t("t1", "sent", follow_ups=1)], next_wake_at="2099-01-01T00:00:00Z",
+    out = enquiry._compact_enquiry(_detail(targets=[_t("t1", "sent", follow_ups=1)], events=events, messages=_delivered("t1")))
+    assert out["next_step"].startswith("Followed up already") and "wait(5)" in out["next_step"]
+    assert "mark_no_response" not in out["next_step"]
+    pending_timer = _detail(targets=[_t("t1", "sent", follow_ups=1)], next_wake_at="2099-01-01T00:00:00Z", messages=_delivered("t1"),
                             events=[{"seq": 5, "type": "follow_up_queued"}, {"seq": 7, "type": "wait_set"}])
     assert "wait(5)" in enquiry._compact_enquiry(pending_timer)["next_step"]
 
@@ -118,7 +123,7 @@ def test_client_desk_never_told_to_close_available_even_with_a_verified_offer():
 
 
 def test_client_desk_after_notifying_waits_instead_of_closing():
-    detail = _detail(desk=True, targets=[_t("t1", "available", "3ande")],
+    detail = _detail(desk=True, targets=[_t("t1", "available", "")],
                      messages=[{"kind": "notification", "body": "Baabda has it"}])
     for decision in ("matches", None):
         step = enquiry._compact_enquiry(detail, {"t1": decision} if decision else {})["next_step"]

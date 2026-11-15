@@ -168,10 +168,11 @@ def test_propose_targets_posts_branch_ids(fake):
 
 
 def test_close_enquiry_passes_409_message_through(fake):
-    f = fake({"error": {"code": "conflict", "message": "Close as available needs one target with status available.",
-                        "request_id": "r2"}})
+    f = fake({}, {"error": {"code": "conflict", "message": "Close as available needs one target with status available.",
+                            "request_id": "r2"}})  # first answer: close_enquiry reads the state (no unread replies)
     out = enquiry.close_enquiry("E1", outcome="available")
-    assert f.calls[0][:3] == ("POST", "/api/v1/enquiries/E1/close", {"outcome": "available", "branch_id": None})
+    assert f.calls[0][:2] == ("GET", "/api/v1/enquiries/E1")
+    assert f.calls[1][:3] == ("POST", "/api/v1/enquiries/E1/close", {"outcome": "available", "branch_id": None})
     assert out == {"error": "Close as available needs one target with status available.", "code": "conflict"}
 
 
@@ -208,18 +209,19 @@ def test_send_wait_notify_follow_up_no_response_close_paths(fake):
     enquiry.follow_up("T3")
     enquiry.mark_no_response("T3")
     enquiry.close_enquiry("E1", outcome="available", branch_id="B")
-    paths = [(c[0], c[1]) for c in f.calls]
-    assert paths == [
-        ("POST", "/api/v1/enquiries/E1/send"),
-        ("POST", "/api/v1/enquiries/E1/wait"),
-        ("POST", "/api/v1/enquiries/E1/notify"),
-        ("POST", "/api/v1/targets/T3/follow-up"),
-        ("POST", "/api/v1/targets/T3/no-response"),
-        ("POST", "/api/v1/enquiries/E1/close"),
+    # wait() and close_enquiry() read the state first (GET); notify returns the fresh next_step (GET).
+    posts = [c for c in f.calls if c[0] == "POST"]
+    assert [c[1] for c in posts] == [
+        "/api/v1/enquiries/E1/send",
+        "/api/v1/enquiries/E1/wait",
+        "/api/v1/enquiries/E1/notify",
+        "/api/v1/targets/T3/follow-up",
+        "/api/v1/targets/T3/no-response",
+        "/api/v1/enquiries/E1/close",
     ]
-    assert f.calls[1][2] == {"minutes": 15}
-    assert f.calls[2][2] == {"body": "Pharmacy C offers 625mg only"}
-    assert f.calls[5][2] == {"outcome": "available", "branch_id": "B"}
+    assert posts[1][2] == {"minutes": 15}
+    assert posts[2][2] == {"body": "Pharmacy C offers 625mg only"}
+    assert posts[5][2] == {"outcome": "available", "branch_id": "B"}
 
 
 def test_backend_unreachable_maps_url_error(monkeypatch):

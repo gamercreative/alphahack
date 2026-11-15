@@ -84,6 +84,7 @@ def _compute_enquiry_policy_flags(detail: dict, targets: list[dict]) -> list[str
     return flags
 
 
+HUMAN_TURN = ("awaiting_approval", "awaiting_clarification")  # wait() sets no timer then
 REPLIED_STATUSES = ("available", "unavailable", "alternative_offered")
 NOT_A_MATCH = ("escalated", "rejected")
 CLIENT_DESK_BRANCH = "branch-client-desk"  # the client reserves the offer; the agent never closes these as available
@@ -155,22 +156,34 @@ def _next_step(out: dict, messages: list) -> str:
         # Contract rule 6/11: a client ticket closes 'available' only at a branch with a verified offer; Go enforces it.
         unverified = [t for t in avail if t.get("offer") != "matches"]
         avail = [t for t in avail if t.get("offer") == "matches"]
-        if avail:
-            return (f"{avail[0]['pharmacy']} has a rules-accepted offer: close_enquiry outcome 'available' with branch_id "
-                    f"{avail[0].get('branch_id')}. Go accepts it only if the offer is verified; if it refuses, "
-                    "notify_requester in plain words (no advice, no other medicine) and wait(5).")
+        # The agent never closes a client ticket 'available' (Go refuses it): the client reserves the offer.
+        fresh_ok = [t for t in avail if (t.get("pharmacy") or "") not in notified]
+        if fresh_ok:
+            return (f"{fresh_ok[0]['pharmacy']} has a rules-accepted offer: notify_requester on the client ticket naming "
+                    f"{fresh_ok[0]['pharmacy']} in plain words (no advice, no other medicine), then wait(15). "
+                    "The client reserves it; never close_enquiry 'available' on a client ticket.")
         fresh = [t for t in unverified if (t.get("pharmacy") or "") not in notified]
         if fresh:
             return (f"{fresh[0]['pharmacy']} says it has it but there is no verified offer yet: notify_requester on the client "
                     f"ticket naming {fresh[0]['pharmacy']} in plain words (no advice, no other medicine), then wait(5). "
                     "Do NOT close as available.")
+        if avail or unverified:
+            # Already told the client; a reservation or a photo check is still to come, so never fall through to a close.
+            return ("The client was told about every pharmacy that has it; the client reserves or a photo check is pending: "
+                    "call wait(15). Do NOT close_enquiry.")
     if avail:
         return f"A pharmacy replied available: close_enquiry outcome 'available' with branch_id of {avail[0]['pharmacy']} (branch_id {avail[0].get('branch_id')})."
+    escalated = [t for t in targets if t["status"] == "available" and t.get("offer") == "escalated"
+                 and (t.get("pharmacy") or "") not in notified]
     if any(t["status"] == "approved" for t in targets):
         return "The requester approved targets: call send_enquiries now, then wait(5)."
     if any(t["status"] == "proposed" for t in targets):
         return "Stop now: the requester must approve the proposed pharmacies. Do not call wait(); end this run with a one-line summary."
-    after = _after_replies(targets)
+    after = _after_replies(targets, out.get("_waited_after_follow_up"))
+    if escalated:
+        return (f"{escalated[0]['pharmacy']} says it has it, but the rules escalated the reading ({escalated[0].get('reply_text')}): "
+                f"notify_requester naming {escalated[0]['pharmacy']} and what they said, for a human to check. It is NOT a "
+                "match. Then, in the same run: " + after)
     alt = [t for t in targets if t["status"] == "alternative_offered" and (t.get("pharmacy") or "") not in notified]
     if alt and alt[0].get("offer") == "matches":
         return (f"The rules checked the offer from {alt[0]['pharmacy']} ({alt[0].get('reply_text')}) as a dose equivalent: "
@@ -182,7 +195,7 @@ def _next_step(out: dict, messages: list) -> str:
     return after
 
 
-def _after_replies(targets: list) -> str:
+def _after_replies(targets: list, waited: bool | None = None) -> str:
     """The step once every reply is read and reported: chase silent pharmacies, then close."""
     pending = [t for t in targets if t["status"] == "sent"]
     if pending:
@@ -193,6 +206,11 @@ def _after_replies(targets: list) -> str:
         if no_fu:
             return "Still silent: follow_up " + ", ".join(t["target_id"] for t in no_fu) + " (once each), then wait(5)."
         ids = ", ".join(t["target_id"] for t in pending)
+        if waited is True:
+            return (f"Followed up and waited with no reply: mark_no_response {ids} now (each), then close as next_step says "
+                    "in the same run.")
+        if waited is False:
+            return "Followed up already; no wait has passed since: call wait(5) now."
         return ("Followed up already. If you have not waited since the follow-up, call wait(5) now. If this run was woken by "
                 f"the timer after that wait, mark_no_response {ids}, then get_enquiry and follow next_step in the same run.")
     if targets and all(t["status"] == "unavailable" for t in targets):
@@ -216,17 +234,38 @@ def _offer_decisions(enquiry_id, targets_raw: list) -> dict:
 PHOTO_DECIDED = ("verified", "flagged", "mismatch", "rejected")
 
 
+def _photo_unread(photo: dict) -> bool:
+    """A photo needs read_package_photo until the agent's reading is stored ('flagged' only means the rules wait)."""
+    if "read_at" in photo or "agent_code" in photo:
+        return not photo.get("read_at") and not photo.get("agent_code")
+    return photo.get("status") not in PHOTO_DECIDED
+
+
 def _photos_to_read(detail: dict, targets_raw: list) -> list[str]:
     """Ids of package photos nobody has read yet (from the detail's photos list, a target's photos, or the photo wake)."""
     rows = list(detail.get("photos") or [])
     for t in targets_raw:
         if isinstance(t, dict):
             rows += list(t.get("photos") or [])
-    ids = [str(p["id"]) for p in rows if isinstance(p, dict) and p.get("id") and p.get("status") not in PHOTO_DECIDED]
-    wake_photo = detail.get("wake_photo_id")
-    if not ids and wake_photo and detail.get("wake_trigger") == "photo":
+    ids = [str(p["id"]) for p in rows if isinstance(p, dict) and p.get("id") and _photo_unread(p)]
+    wake_photo = detail.get("wake_photo_id")  # set by the backend only on a photo wake
+    if not ids and wake_photo and not any(isinstance(p, dict) and p.get("id") == wake_photo and not _photo_unread(p)
+                                          for p in rows):
         ids = [str(wake_photo)]
     return ids[:3]
+
+
+def _waited_after_follow_up(detail: dict) -> bool | None:
+    """True when a wait was set after the last follow-up and its timer has fired; None when events are missing."""
+    events = [e for e in detail.get("events") or [] if isinstance(e, dict)]
+    if not events:
+        return None
+    last = {}
+    for e in events:
+        last[e.get("type")] = max(last.get(e.get("type"), -1), int(e.get("seq") or 0))
+    if "follow_up_queued" not in last:
+        return None
+    return last.get("wait_set", -1) > last["follow_up_queued"] and not detail.get("next_wake_at")
 
 
 def _compact_enquiry(detail: dict, offers: dict | None = None) -> dict:
@@ -271,7 +310,9 @@ def _compact_enquiry(detail: dict, offers: dict | None = None) -> dict:
     to_read = _photos_to_read(detail, targets_raw)
     if to_read:
         out["photos_to_read"] = to_read
+    out["_waited_after_follow_up"] = _waited_after_follow_up(detail)
     out["next_step"] = _next_step(out, messages)
+    out.pop("_waited_after_follow_up", None)
     # hard guard: drop trailing targets (and say so) until the result fits the size budget
     omitted = 0
     while len(json.dumps(out)) > MAX_RESULT_CHARS and out["targets"]:
@@ -280,6 +321,27 @@ def _compact_enquiry(detail: dict, offers: dict | None = None) -> dict:
     if omitted:
         out["targets_omitted"] = omitted
     return out
+
+
+def _fresh_next_step(enquiry_id) -> str | None:
+    """The next_step after a change, so the model can keep going without another get_enquiry call."""
+    if not enquiry_id:
+        return None
+    try:
+        out = _http.call("GET", _enq(enquiry_id))
+        if _http.tool_error(out):
+            return None
+        enquiry = out.get("enquiry") if isinstance(out.get("enquiry"), dict) else out
+        return _compact_enquiry(out, _offer_decisions(enquiry.get("id") or enquiry_id, out.get("targets", []) or []))["next_step"]
+    except Exception:
+        return None
+
+
+def _with_next(result: dict, enquiry_id) -> dict:
+    step = _fresh_next_step(enquiry_id)
+    if step:
+        result["next_step"] = step
+    return result
 
 
 @tool
@@ -402,7 +464,7 @@ def follow_up(target_id: Annotated[str, "The target_id of a pharmacy that has no
     error = _http.tool_error(out)
     if error:
         return error
-    return {"ok": True, "target_id": target_id, "status": out.get("status")}
+    return _with_next({"ok": True, "target_id": target_id, "status": out.get("status")}, out.get("enquiry_id"))
 
 
 @tool
@@ -412,7 +474,7 @@ def mark_no_response(target_id: Annotated[str, "The target_id of a pharmacy that
     error = _http.tool_error(out)
     if error:
         return error
-    return {"ok": True, "target_id": target_id, "status": out.get("status")}
+    return _with_next({"ok": True, "target_id": target_id, "status": out.get("status")}, out.get("enquiry_id"))
 
 
 @tool
@@ -425,7 +487,7 @@ def notify_requester(
     error = _http.tool_error(out)
     if error:
         return error
-    return {"ok": True}
+    return _with_next({"ok": True}, enquiry_id)
 
 
 @tool
@@ -434,6 +496,11 @@ def wait(
     minutes: Annotated[Literal[5, 15, 30], "How long to wait before checking again: 5, 15 or 30"],
 ) -> dict:
     """Ends this run and schedules the next check. Use it whenever pharmacies are still pending and nothing else can be done now."""
+    state = _http.call("GET", _enq(enquiry_id))
+    current = state.get("enquiry") if isinstance(state.get("enquiry"), dict) else state
+    if not _http.tool_error(state) and current.get("status") in HUMAN_TURN:
+        return {"ok": True, "skipped": True, "status": current.get("status"),
+                "note": "No wait needed: a human answers next and that wakes you. STOP: end this run now with no more tool calls."}
     out = _http.call("POST", _enq(enquiry_id) + "/wait", body={"minutes": minutes})
     error = _http.tool_error(out)
     if error:
@@ -449,6 +516,14 @@ def close_enquiry(
     branch_id: Annotated[str | None, "For outcome available: the branch_id that has the medicine"] = None,
 ) -> dict:
     """Closes the enquiry with a final outcome. Use it when every pharmacy has answered or been marked no_response; the server refuses a close that contradicts the replies."""
+    state = _http.call("GET", _enq(enquiry_id))
+    if not _http.tool_error(state):
+        current = state.get("enquiry") if isinstance(state.get("enquiry"), dict) else state
+        compact = _compact_enquiry(state, _offer_decisions(current.get("id") or enquiry_id, state.get("targets", []) or []))
+        unread = [t for t in compact.get("targets", []) if _needs_offer(t)]
+        if unread:
+            return {"error": f"Not closed: read the reply of {unread[0].get('pharmacy')} first. " + compact["next_step"],
+                    "code": "replies_unread"}
     out = _http.call("POST", _enq(enquiry_id) + "/close", body={"outcome": outcome, "branch_id": branch_id})
     error = _http.tool_error(out)
     if error:

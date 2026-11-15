@@ -216,7 +216,7 @@ def test_get_enquiry_with_ten_targets_under_2k(fake):
 
 
 def test_tool_error_message_under_2k(fake):
-    fake({"error": {"code": "conflict", "message": "m" * 5000}})
+    fake({}, {"error": {"code": "conflict", "message": "m" * 5000}})  # first answer: close_enquiry's state read
     out = enquiry.close_enquiry("E1", "unable_to_confirm")
     size = len(json.dumps(out))
     assert out["code"] == "conflict"

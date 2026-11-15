@@ -87,10 +87,11 @@ def _desk(targets, **extra):
     return detail
 
 
-def test_client_desk_closes_available_only_with_a_rules_accepted_offer():
+def test_client_desk_notifies_a_rules_accepted_offer_and_never_closes_available():
+    # Go refuses the agent's close 'available' on a client ticket: the client reserves the offer.
     targets = [_target("t1", "available", "3anna 2 boxes 500mg")]
     step = enquiry._compact_enquiry(_desk(targets), {"t1": "matches"})["next_step"]
-    assert "close_enquiry outcome 'available' with branch_id branch-baabda" in step
+    assert "close_enquiry outcome 'available'" not in step and "notify_requester on the client ticket naming Baabda" in step
     out = enquiry._compact_enquiry(_desk([_target("t1", "available", "")]))
     assert out["client_desk"] is True
     assert "notify_requester on the client ticket naming Baabda" in out["next_step"] and "Do NOT close as available" in out["next_step"]

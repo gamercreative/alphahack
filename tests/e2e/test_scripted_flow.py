@@ -10,11 +10,14 @@ test stack, not in parallel with other live tests.
 
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-AGENT_PY = ROOT / "agent" / ".venv" / "bin" / "python"
+_VENV_PY = ROOT / "agent" / ".venv" / "bin" / "python"
+# CI has no agent/.venv: fall back to the interpreter running pytest (Cornilia installed there).
+AGENT_PY = _VENV_PY if _VENV_PY.exists() else Path(sys.executable)
 RUNNER = ROOT / "agent" / "runner.py"
 LETTER = {"branch-hamra": "a", "branch-achrafieh": "b", "branch-baabda": "c",
           "branch-verdun": "d", "branch-byblos": "e"}

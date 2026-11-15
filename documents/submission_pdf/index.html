@@ -1,0 +1,174 @@
+<!doctype html><html><head><meta charset="utf-8"><title>DOSYN / Wassit</title><style>
+:root{--deep:#14382f;--pine:#204c3d;--acc:#2f7d68;--mint:#e4efe4;--sand:#f7ecd6;--paper:#f8f7f1;--ink:#203b33;--muted:#52665d;--gold:#f2b84b;--line:#dce3d9}
+*{box-sizing:border-box}body{margin:0;font-family:"DM Sans","Avenir Next",system-ui,sans-serif;color:var(--ink)}
+.page{width:842px;height:595px;position:relative;overflow:hidden;background:var(--paper);padding:34px 42px 40px}
+.foot{position:absolute;bottom:14px;left:42px;right:42px;display:flex;justify-content:space-between;font-size:8px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.kick{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--acc);font-weight:700}
+h1{font-size:26px;margin:4px 0 12px;color:var(--deep);font-weight:700;letter-spacing:-.01em}
+h3{font-size:11.5px;margin:0 0 5px;color:var(--deep)}
+p,li{font-size:10px;line-height:1.45;margin:0 0 6px}ul{padding-left:15px;margin:0}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}.cols3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:8px 0 12px}
+.tile{background:var(--deep);color:#fff;border-radius:10px;padding:10px 12px}.tile b{display:block;font-size:24px;color:#d9e8ad;line-height:1.1}.tile span{font-size:8.5px;opacity:.9;line-height:1.3;display:block}
+.tile.l{background:var(--mint);color:var(--ink)}.tile.l b{color:var(--deep)}
+table{border-collapse:collapse;width:100%;font-size:8.3px}th{background:var(--deep);color:#fff;text-align:left;padding:3.5px 5px;font-weight:600}td{padding:3px 5px;border-bottom:1px solid var(--line)}tr:nth-child(even) td{background:#fff}
+.no{color:#b42318;font-weight:700}.yes{color:#1f7a4d;font-weight:700}
+.chip{display:inline-block;padding:1px 7px;border-radius:9px;font-size:8px;font-weight:700;border:1px solid}
+.rules{color:#1d5fa8;background:#e8f0fb;border-color:#a9c6ea}.human{color:#8a5a00;background:#fdf1d6;border-color:#e6c27a}.pharmacy{color:#6b4a1f;background:var(--sand);border-color:#d8c196}.client{color:var(--pine);background:#e2eee8;border-color:#9fc2b3}.wassit{color:var(--muted);background:#f2f5f1;border-color:var(--line)}
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.step{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 9px;position:relative;min-height:112px}
+.step .n{width:18px;height:18px;border-radius:50%;background:var(--acc);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-bottom:4px}
+.step p{font-size:8.6px;margin:3px 0}.step.h{border:2px solid var(--gold);background:#fffaf0}.hp{font-size:8px;color:#8a5a00;font-weight:700}
+.note{font-size:8.5px;color:var(--muted)}.q{background:#fff3c4;padding:0 2px;border-radius:2px}
+.cover{background:var(--deep);color:#fff;padding:0}
+</style></head><body>
+<!-- 1 COVER -->
+<section class="page cover">
+<svg width="842" height="595" style="position:absolute;inset:0"><circle cx="640" cy="300" r="250" fill="#204c3d"/><circle cx="640" cy="300" r="185" fill="#2f7d68" opacity=".55"/><circle cx="640" cy="300" r="120" fill="#e4efe4" opacity=".12"/></svg>
+<div style="position:absolute;left:52px;top:60px;width:420px">
+<div class="kick" style="color:#d9e8ad">AlphaHack 2026 · Build an agent · Submission</div>
+<div style="font-size:78px;font-weight:800;letter-spacing:-.03em;margin:18px 0 0;line-height:1">DOSYN</div>
+<div style="font-size:24px;font-weight:600;color:#d9e8ad;margin-top:6px">with Wassit <span style="font-family:'SF Arabic','Geeza Pro';font-weight:500">· وسيط</span></div>
+<p style="font-size:17px;line-height:1.35;color:#fff;margin-top:26px">DOSYN removes the weekly hunt for a scarce medicine.</p>
+<p style="font-size:13px;color:#cfe3da;margin-top:4px">The AI talks. The rules decide. You get your medicine.</p>
+<div style="margin-top:34px;display:flex;gap:8px;flex-wrap:wrap">
+<span class="chip" style="color:#fff;border-color:#ffffff55">Arabic · Arabizi · French · English</span><span class="chip" style="color:#fff;border-color:#ffffff55">11 product rules in Go</span><span class="chip" style="color:#fff;border-color:#ffffff55">Never "AI decided"</span></div>
+</div>
+<svg viewBox="0 0 120 120" width="300" height="300" style="position:absolute;left:490px;top:140px">
+<path d="M14 120c2-28 20-40 46-40s44 12 46 40Z" fill="#fff" stroke="#c9d8d3" stroke-width="1.5"/><path d="M48 82 60 104 72 82Z" fill="#2f7d68"/><path d="M48 82 60 104 52 120 38 89Z" fill="#fff" stroke="#c9d8d3" stroke-width="1.5"/><path d="M72 82 60 104 68 120 82 89Z" fill="#fff" stroke="#c9d8d3" stroke-width="1.5"/><rect x="53" y="64" width="14" height="19" rx="6" fill="#e0ad86"/><circle cx="60" cy="49" r="22" fill="#efc4a0"/><path d="M37 50c-3-22 11-29 24-29 15 0 25 9 22 29-3-10-11-15-23-15-11 0-19 5-23 15Z" fill="#3a2a21"/><circle cx="52" cy="52" r="2.3" fill="#22302c"/><circle cx="68" cy="52" r="2.3" fill="#22302c"/><circle cx="46" cy="59" r="3.4" fill="#f08f86" opacity=".35"/><circle cx="74" cy="59" r="3.4" fill="#f08f86" opacity=".35"/><path d="M53 60q7 6 14 0" fill="none" stroke="#8a4b3a" stroke-width="2.2" stroke-linecap="round"/><rect x="69" y="93" width="24" height="10" rx="2.5" fill="#2f7d68"/><rect x="72" y="97" width="14" height="2.2" rx="1" fill="#e9fff6"/><rect x="27" y="96" width="16" height="7" rx="3.5" fill="#f2b84b"/><rect x="35" y="96" width="8" height="7" rx="3.5" fill="#e76f51"/></svg>
+<div style="position:absolute;left:560px;top:450px;background:#fff;color:var(--deep);border-radius:14px;padding:6px 14px;font-size:11px;font-weight:700">Wassit · AI pharmacist assistant</div>
+<div class="foot" style="color:#cfe3da"><span>15 November 2026</span><span>Go · PostgreSQL · Cornilia · Ollama</span></div>
+</section>
+
+<!-- 2 PROBLEM -->
+<section class="page"><div class="kick">1 · Problem statement</div><h1>A scarce medicine means a weekly hunt</h1>
+<div class="cols"><div>
+<p style="font-size:12px">In Lebanon, the patient calls or walks to pharmacy after pharmacy. Pharmacists phone each other. Nobody knows who has stock, at what price, or whether the box is genuine. People who can afford it buy in bulk, which makes the shortage worse. A gap in supply is medically dangerous.</p>
+<div class="card" style="margin-top:10px"><h3>Who it is for</h3><ul>
+<li><b>Patients and caregivers</b> who depend on a recurring scarce medicine: one request or one schedule instead of hours of calls and chats every week.</li>
+<li><b>Pharmacists</b> who search for a medicine for their own customer: one enquiry reaches several pharmacies, with undo and follow-up.</li>
+<li><b>Pharmacies</b> receive clear, structured asks and never see the client's identity.</li></ul></div></div>
+<div><div class="card" style="background:var(--deep);color:#fff;border:0"><h3 style="color:#d9e8ad">The job it solves</h3><p style="font-size:12.5px;line-height:1.4">Find the medicine the client asked for, at a pharmacy that really has it, with a verified box, the best price and the latest expiry, without the client chasing anyone and without an AI making a medical decision.</p></div>
+<div class="cols" style="margin-top:12px;gap:10px"><div class="card"><h3>Before</h3><ul><li>Call pharmacy after pharmacy</li><li>Haggle over strength and price</li><li>Hope the box is real</li><li>Buy in bulk "just in case"</li></ul></div>
+<div class="card" style="border-color:var(--acc)"><h3>With DOSYN</h3><ul><li>Ask once, or every Friday</li><li>Wassit asks several pharmacies at once</li><li>Rules check matches, doses and photos</li><li>Best verified offer, then reserve</li></ul></div></div></div></div>
+<div class="foot"><span>DOSYN / Wassit · AlphaHack 2026</span><span>2</span></div></section>
+
+<!-- 3 CASES -->
+<section class="page"><div class="kick">2 · Real cases</div><h1>20 cases, replayed against the real backend</h1>
+<div class="tiles"><div class="tile"><b>16/20</b><span>matches · qwen3.5:35b-a3b, local Ollama on the owner's LAN server · 2026-11-14</span></div>
+<div class="tile l"><b>15/20</b><span>matches · claude-haiku-5-5 (Anthropic) · 2026-11-14 · $0.108 · 14.6 min</span></div>
+<div class="tile l"><b>14/20</b><span>matches · scripted policy, no model · 2026-11-14 · 12.1 min</span></div>
+<div class="tile"><b>$0</b><span>qwen run cost (own GPU) · 22 HITL · 193 steps · 529k tokens · 26.2 min</span></div></div>
+<div class="cols"><div class="card"><h3>What the 20 cases are</h3>
+<p>The 20 cases in <code>agent/cases/cases.jsonl</code> are <b>placeholders, written for the demo</b> until the owner supplies real ones. Requester A creates an agent enquiry, scripted pharmacists reply or stay silent, and the agent runs until the enquiry closes or 25 rounds pass (timers compressed: undo 3 s, wait unit 2 s).</p>
+<ul><li>3 ambiguous requests that need a clarification</li><li>10 expected <b>available</b>, 4 <b>unavailable</b>, 6 <b>unable_to_confirm</b> (3 with an alternative offer, 3 with silence)</li><li>English, French, Arabic and Arabizi (e.g. <i>badde augmentin 1g 2 3elab</i>)</li></ul></div>
+<div class="card"><h3>Where qwen missed (4 of 20)</h3>
+<ul><li><b>case-05, 10, 11:</b> the pharmacy scripted "available" was not among the 3 nearest asked. These are mostly about how the placeholder cases are written.</li>
+<li><b>case-08:</b> qwen asked a clarification the case file never answers.</li></ul>
+<h3 style="margin-top:8px">Full agent flow (acceptance check 2)</h3>
+<p>qwen3.5:35b-a3b: <span class="yes">passed</span>: alternative flagged as not a match, follow-up, no_response, closed unable_to_confirm · 6 runs · 42k tokens · 188 s. claude-haiku-5-5: <span class="yes">passed</span>, same steps · 5 runs · 63k tokens · 79 s.</p></div></div>
+<div class="card" style="margin-top:12px;border-color:var(--acc)"><h3>Live runs today, 2026-11-15 (qwen3.5:35b-a3b, current code with offers, reference check and rules)</h3>
+<p><b>case-01</b> "need augmentin" → <span class="yes">available</span> · 9 steps · 66 s. &nbsp; <b>case-14</b> "Zithromax 500mg, 2 boîtes" → <span class="yes">unable_to_confirm, matched</span> · 1 HITL · 15 steps · 150.8 s · $0.014809: check_reference + record_offer, the Rules rejected the "only 250mg" offer, follow-up, no_response, closed.</p></div>
+<div class="foot"><span>Sources: docs/BENCHMARKS.md, agent/cases/results_*.md, .dev/watch/result.md</span><span>3</span></div></section>
+
+<!-- 4 CASE TABLE -->
+<section class="page"><div class="kick">2 · Real cases · full table</div><h1 style="font-size:20px">qwen3.5:35b-a3b on all 20 placeholder cases (run 2026-11-14)</h1>
+<table><tr><th>Case</th><th>Request (as typed)</th><th>Expected</th><th>Outcome</th><th>Match</th><th>HITL</th><th>Steps</th><th>Elapsed (s)</th></tr>
+<tr><td>01</td><td>need augmentin</td><td>available</td><td>available</td><td class="yes">yes</td><td>2</td><td>10</td><td>75.4</td></tr>
+<tr><td>02</td><td>3ayez augmentin</td><td>available</td><td>available</td><td class="yes">yes</td><td>2</td><td>10</td><td>71.9</td></tr>
+<tr><td>03</td><td style="font-family:'SF Arabic','Geeza Pro'">عندكم أوغمنتين؟ بدي 4 علب</td><td>unable_to_confirm</td><td>unable_to_confirm</td><td class="yes">yes</td><td>2</td><td>16</td><td>149.2</td></tr>
+<tr><td>04</td><td>Panadol Advance 500mg, 3 packs</td><td>available</td><td>available</td><td class="yes">yes</td><td>1</td><td>8</td><td>59.2</td></tr>
+<tr><td>05</td><td>Bonjour, il me faut du Brufen 400mg, 2 boîtes svp</td><td>available</td><td>unavailable</td><td class="no">no</td><td>1</td><td>8</td><td>55.4</td></tr>
+<tr><td>06</td><td>badde augmentin 1g 2 3elab</td><td>available</td><td>available</td><td class="yes">yes</td><td>1</td><td>8</td><td>63.0</td></tr>
+<tr><td>07</td><td>Zithromax 500mg, 1 pack of 3 tablets</td><td>available</td><td>available</td><td class="yes">yes</td><td>1</td><td>8</td><td>54.2</td></tr>
+<tr><td>08</td><td style="font-family:'SF Arabic','Geeza Pro'">بدي ليبيتور 20 ملغ علبة</td><td>available</td><td>none (awaiting_clarification)</td><td class="no">no</td><td>0</td><td>2</td><td>114.9</td></tr>
+<tr><td>09</td><td>need Glucophage 1000mg x2 boxes</td><td>available</td><td>available</td><td class="yes">yes</td><td>1</td><td>8</td><td>53.6</td></tr>
+<tr><td>10</td><td>Nexium 20 mg, 1 boîte</td><td>available</td><td>unable_to_confirm</td><td class="no">no</td><td>1</td><td>11</td><td>91.8</td></tr>
+<tr><td>11</td><td>Ventolin inhaler 100mcg, 1 inhaler, urgent</td><td>available</td><td>unable_to_confirm</td><td class="no">no</td><td>1</td><td>11</td><td>95.9</td></tr>
+<tr><td>12</td><td>3ayez concor 5 mg 30 hab</td><td>unable_to_confirm</td><td>unable_to_confirm</td><td class="yes">yes</td><td>1</td><td>11</td><td>85.5</td></tr>
+<tr><td>13</td><td>Lipitor 20mg x1 box</td><td>unable_to_confirm</td><td>unable_to_confirm</td><td class="yes">yes</td><td>1</td><td>12</td><td>85.4</td></tr>
+<tr><td>14</td><td>Zithromax 500mg, 2 boîtes</td><td>unable_to_confirm</td><td>unable_to_confirm</td><td class="yes">yes</td><td>1</td><td>13</td><td>123.3</td></tr>
+<tr><td>15</td><td>Panadol Advance 500mg, 5 packs</td><td>unable_to_confirm</td><td>unable_to_confirm</td><td class="yes">yes</td><td>1</td><td>14</td><td>129.0</td></tr>
+<tr><td>16</td><td style="font-family:'SF Arabic','Geeza Pro'">بدي فنتولين بخاخ 100 مكغ</td><td>unable_to_confirm</td><td>unable_to_confirm</td><td class="yes">yes</td><td>1</td><td>11</td><td>93.3</td></tr>
+<tr><td>17</td><td>3andkom Brufen 400? 3 3elab</td><td>unavailable</td><td>unavailable</td><td class="yes">yes</td><td>1</td><td>8</td><td>44.0</td></tr>
+<tr><td>18</td><td>Concor 5mg, 1 box</td><td>unavailable</td><td>unavailable</td><td class="yes">yes</td><td>1</td><td>8</td><td>39.3</td></tr>
+<tr><td>19</td><td>Augmentin 625 mg, 3 boîtes</td><td>unavailable</td><td>unavailable</td><td class="yes">yes</td><td>1</td><td>8</td><td>43.7</td></tr>
+<tr><td>20</td><td>need Nexium 20mg 2 boxes</td><td>unavailable</td><td>unavailable</td><td class="yes">yes</td><td>1</td><td>8</td><td>42.8</td></tr></table>
+<p class="note" style="margin-top:6px">Totals (agent/cases/results_qwen.md): matches 16/20 · total HITL 22 · total steps 193 · cost $0 (own GPU). Placeholder cases, not the owner's real demand.</p>
+<div class="foot"><span>Source: agent/cases/results_qwen.md</span><span>4</span></div></section>
+
+<!-- 5 SOLUTION -->
+<section class="page"><div class="kick">3 · Solution</div><h1>What Wassit does, step by step</h1>
+<p style="margin-top:-4px">Code decides what is allowed. The model only decides what to do next. <span style="background:#fffaf0;border:2px solid var(--gold);border-radius:6px;padding:0 6px;font-size:9px;font-weight:700;color:#8a5a00">gold = a person approves</span></p>
+<div class="flow" style="margin-top:8px">
+<div class="step"><div class="n">1</div><h3>Client asks</h3><p>Searches the catalogue; asks once or on a schedule (e.g. every Friday). No bulk buying.</p><span class="chip client">Client</span></div>
+<div class="step h"><div class="n">2</div><h3>Match the medicine</h3><p>Wassit searches the DB catalogue. Ambiguous request → it asks the requester.</p><div class="hp">Requester answers clarifications</div></div>
+<div class="step h"><div class="n">3</div><h3>Pick pharmacies</h3><p>Go ranks candidates (stock, distance, freshness); Wassit proposes targets.</p><div class="hp">Requester approves targets. Client tickets: Go auto-approves only if every target is in the ranked list</div></div>
+<div class="step h"><div class="n">4</div><h3>Ask anonymously</h3><p>Outbox sends to several pharmacies at once as "DOSYN client desk".</p><div class="hp">60 s undo window on every outbound message</div></div>
+<div class="step h"><div class="n">5</div><h3>Pharmacists reply</h3><p>Free text: Arabic, Arabizi, French, English. Silence → one follow-up → no_response, never "unavailable".</p><div class="hp">Only target pharmacy staff can reply or upload photos</div></div>
+<div class="step"><div class="n">6</div><h3>Read the reply</h3><p>Wassit turns it into a structured offer with the exact quoted words as evidence.</p><span class="chip wassit">Wassit · relayed</span></div>
+<div class="step"><div class="n">7</div><h3>Rules decide</h3><p>Go decides match and dose equivalence: same ingredient + form + listed in the government reference. 625mg can never make 1000mg.</p><span class="chip rules">Rules</span></div>
+<div class="step h"><div class="n">8</div><h3>Check the photo</h3><p>Pharmacist types code + expiry; vision model reads the photo; Go compares.</p><div class="hp">Flagged photos go to a human reviewer</div></div>
+<div class="step"><div class="n">9</div><h3>Best offer</h3><p>Go picks from verified offers only: lowest total, then latest expiry. The model never ranks.</p><span class="chip rules">Rules</span></div>
+<div class="step h"><div class="n">10</div><h3>Reserve</h3><p>The client sees the best verified offer in the ticket and reserves it.</p><div class="hp">The client reserves</div></div></div>
+<div class="card" style="margin-top:10px;display:flex;gap:14px;align-items:center"><b style="font-size:10px">Every event shows its decider:</b><span class="chip rules">Rules</span><span class="chip human">Human</span><span class="chip pharmacy">Pharmacy</span><span class="chip client">Client</span><span class="chip wassit">Wassit · relayed</span><span class="note">The API never says "AI decided".</span></div>
+<div class="foot"><span>Sources: CONTRACT.md rules 1–11, README.md</span><span>5</span></div></section>
+
+<!-- 6 TICKET -->
+<section class="page"><div class="kick">3 · Solution · inside one ticket</div><h1>Messy reply in, structured offer out, rules decide</h1>
+<div class="cols"><div class="card">
+<h3>Pharmacist reply (Arabizi, free text)</h3>
+<p style="font-size:13px;background:var(--sand);border-radius:10px;padding:8px 10px">"<span class="q">eh 3ande 2 3elab</span>, <span class="q">10$ el 3elbe</span>, <span class="q">expiry 09/2027</span>"</p>
+<h3 style="margin-top:8px">Structured offer (each field quotes its evidence)</h3>
+<table><tr><th>Field</th><th>Value</th><th>Evidence</th></tr><tr><td>available</td><td>yes</td><td>"eh 3ande"</td></tr><tr><td>quantity</td><td>2 boxes</td><td>"2 3elab"</td></tr><tr><td>unit price</td><td>$10</td><td>"10$ el 3elbe"</td></tr><tr><td>expiry</td><td>09/2027</td><td>"expiry 09/2027"</td></tr></table>
+<p class="note" style="margin-top:6px">From the judge demo (docs/DEMO.md). Then the pharmacist uploads a package photo and that pharmacy becomes the best offer.</p></div>
+<div class="card"><h3>Ticket timeline (demo flow: Augmentin 1000mg, 2 boxes)</h3>
+<table><tr><th>Event</th><th>Decider</th></tr>
+<tr><td>Outreach to several pharmacies at once</td><td><span class="chip wassit">Wassit</span></td></tr>
+<tr><td>A pharmacy declines</td><td><span class="chip pharmacy">Pharmacy</span></td></tr>
+<tr><td>Offer card with the pharmacy's own words highlighted</td><td><span class="chip wassit">Wassit</span></td></tr>
+<tr><td>2 x 500mg = 1 x 1000mg accepted as equivalent</td><td><span class="chip rules">Rules</span></td></tr>
+<tr><td>Another dose equivalent rejected</td><td><span class="chip rules">Rules</span></td></tr>
+<tr><td>Package photo verified (code + expiry)</td><td><span class="chip rules">Rules</span></td></tr>
+<tr><td>Blurry photo sent to a reviewer</td><td><span class="chip human">Human</span></td></tr>
+<tr><td>Silent pharmacy: "no response", never "unavailable"</td><td><span class="chip rules">Rules</span></td></tr>
+<tr><td>Best verified offer shown; client reserves</td><td><span class="chip client">Client</span></td></tr></table>
+<p class="note" style="margin-top:6px">Photos are evidence, not proof: the UI always says a photo alone does not prove a box is genuine.</p></div></div>
+<div class="foot"><span>Sources: docs/DEMO.md, CONTRACT.md</span><span>6</span></div></section>
+
+<!-- 7 STACK -->
+<section class="page"><div class="kick">4 · Stack</div><h1>Models, tools and services</h1>
+<svg width="758" height="170" viewBox="0 0 758 170" style="display:block;margin-bottom:10px" font-family="Avenir Next" font-size="10">
+<rect x="0" y="20" width="150" height="120" rx="10" fill="#fff" stroke="#dce3d9"/><text x="75" y="44" text-anchor="middle" font-weight="700" fill="#14382f">Static web app</text><text x="75" y="62" text-anchor="middle" fill="#52665d">Client + pharmacist UI</text><text x="75" y="78" text-anchor="middle" fill="#52665d">EN / AR (RTL), dark/light</text><text x="75" y="94" text-anchor="middle" fill="#52665d">SSE live updates</text>
+<rect x="215" y="10" width="200" height="140" rx="10" fill="#14382f"/><text x="315" y="36" text-anchor="middle" font-weight="700" fill="#fff" font-size="12">Go 1.25 API</text><text x="315" y="56" text-anchor="middle" fill="#d9e8ad">Rules engine: matches, doses,</text><text x="315" y="70" text-anchor="middle" fill="#d9e8ad">photos, best offer, closing</text><text x="315" y="88" text-anchor="middle" fill="#cfe3da">Outbox + 60 s undo · content filter</text><text x="315" y="104" text-anchor="middle" fill="#cfe3da">auth: staff, client, agent token</text><text x="315" y="122" text-anchor="middle" fill="#cfe3da">~86 routes · SSE</text>
+<rect x="245" y="158" width="140" height="0" />
+<rect x="480" y="20" width="130" height="50" rx="10" fill="#e4efe4" stroke="#2f7d68"/><text x="545" y="42" text-anchor="middle" font-weight="700" fill="#14382f">PostgreSQL 16</text><text x="545" y="58" text-anchor="middle" fill="#52665d">10 migrations, hand SQL</text>
+<rect x="480" y="92" width="130" height="58" rx="10" fill="#f7ecd6" stroke="#d8c196"/><text x="545" y="112" text-anchor="middle" font-weight="700" fill="#6b4a1f">Cornilia agent</text><text x="545" y="127" text-anchor="middle" fill="#6b4a1f">Python, v0.1.0</text><text x="545" y="141" text-anchor="middle" fill="#6b4a1f">15 tools, Agent token</text>
+<rect x="650" y="80" width="108" height="78" rx="10" fill="#fff" stroke="#dce3d9"/><text x="704" y="100" text-anchor="middle" font-weight="700" fill="#14382f">Ollama (local)</text><text x="704" y="116" text-anchor="middle" fill="#52665d">qwen3.5:35b-a3b</text><text x="704" y="130" text-anchor="middle" fill="#52665d">gemma4:31b vision</text><text x="704" y="146" text-anchor="middle" fill="#52665d">opt. Claude Haiku 5.5</text>
+<g stroke="#2f7d68" stroke-width="2" fill="none"><path d="M150 80H215"/><path d="M415 45H480"/><path d="M480 121H415"/><path d="M610 121H650"/></g>
+<text x="182" y="74" text-anchor="middle" fill="#2f7d68" font-size="8.5">REST + SSE</text><text x="447" y="114" text-anchor="middle" fill="#2f7d68" font-size="8.5">REST only</text></svg>
+<div class="cols3"><div class="card"><h3>Models</h3><ul><li><b>qwen3.5:35b-a3b</b> on Ollama: the agent, thinking off</li><li><b>gemma4:31b</b>: reads package photos (qwen fails on images)</li><li>Optional <b>Claude Haiku 5.5</b> via the Anthropic API for the demo video</li><li>macOS <code>say</code>: text-to-speech for simulated calls</li></ul></div>
+<div class="card"><h3>Agent tools (Cornilia @tool)</h3><p style="font-size:8.8px">search_medications · set_medication · ask_requester · find_candidates · propose_targets · send_enquiries · record_offer · check_reference · read_package_photo · notify_requester · follow_up · mark_no_response · wait · close_enquiry · get_enquiry</p><p class="note">Results under 2k chars; errors teach the model. The agent gets 403 on reply, approve, clarify, photo upload and stock update.</p></div>
+<div class="card"><h3>Verified 2026-11-15</h3><ul><li>Go build, vet and tests pass</li><li>203 Python tests</li><li>Client end-to-end smoke 88/88</li><li>Full smoke 164 pass / 0 fail</li><li>Query and layering checks pass on a migrated DB</li></ul></div></div>
+<div class="foot"><span>Sources: docs/ARCHITECTURE.md, agent/tools/, backend/db/migrations</span><span>7</span></div></section>
+
+<!-- 8 BUSINESS -->
+<section class="page"><div class="kick">5 · Business model</div><h1>Who pays, how much, and why</h1>
+<div class="card" style="border:2px solid var(--gold);background:#fffaf0;margin-bottom:10px"><p style="margin:0"><b>Status: proposed, not validated.</b> The owner's brief lists this as an open question: "subscription for patients and caregivers, or B2B with insurers, NGOs and chronic-care clinics". The proposal below follows that brief; no price has been tested with customers.</p></div>
+<div class="cols3"><div class="card"><h3>1 · Patients and caregivers</h3><p><b>Who:</b> people on a recurring scarce medicine.</p><p><b>What:</b> one-off requests free; a subscription for scheduled medicines (e.g. every Friday).</p><p><b>Why:</b> hours of calls every cycle become one schedule and a pickup notice.</p></div>
+<div class="card"><h3>2 · B2B: insurers, NGOs, chronic-care clinics</h3><p><b>Who:</b> organisations responsible for patients on chronic medicine.</p><p><b>What:</b> per-patient monthly fee for supply monitoring.</p><p><b>Why:</b> a supply gap is medically dangerous and costly; they get status and history in one place.</p></div>
+<div class="card"><h3>3 · Pharmacies</h3><p><b>Who:</b> participating pharmacies.</p><p><b>What:</b> free during a pilot, since adoption is unproven; later an optional per-fulfilled-ticket fee.</p><p><b>Why:</b> clear structured asks and reservations they would otherwise miss.</p></div></div>
+<div class="cols" style="margin-top:10px"><div class="card"><h3>Why the margin can work (measured)</h3><p>Running cost per enquiry is low: the qwen 20-case run cost <b>$0</b> on our own GPU; the same 20 cases on claude-haiku-5-5 cost <b>$0.108</b> in total (2026-11-14). Every agent run's tokens and cost are stored in Go.</p></div>
+<div class="card"><h3>Why it compounds (owner's brief)</h3><p>The hunt repeats every cycle. Each conversation becomes structured data: who answers fast, whose stock claims hold. That pharmacy-reliability map is a roadmap item, not built yet.</p></div></div>
+<div class="foot"><span>Source: Cortisone Supply Agent, Concept &amp; Pitch Brief (owner); docs/BENCHMARKS.md</span><span>8</span></div></section>
+
+<!-- 9 ANYTHING ELSE -->
+<section class="page"><div class="kick">6 · Anything else</div><h1>What's next, limits, lessons learned</h1>
+<div class="cols3"><div class="card"><h3>What's next</h3><ul><li>Replace placeholder cases with the owner's 20 real cases</li><li>WhatsApp Business adapter (same engine)</li><li>Voice notes from pharmacists, with human confirmation on any number</li><li>Pilot: one city, 10 to 20 patients, a handful of partner pharmacies</li><li>More recurring scarce medicines: insulin, thyroid, epilepsy</li><li>Real MoPH reference data and regulatory sign-off on dose rules</li></ul></div>
+<div class="card"><h3>Limits, stated plainly</h3><ul><li>The local model is slow: 1 to 2.5 min per enquiry, about 64k input tokens</li><li>Government reference rows are demo seed, not real MoPH data</li><li>Dose equivalence needs regulatory sign-off</li><li>Photo reading was tested on a clean synthetic image</li><li>Pharmacy adoption is unproven</li><li>The 20 cases are placeholders</li></ul></div>
+<div class="card"><h3>Lessons learned</h3><ul><li><b>Put guards in code, not in the prompt.</b> Three guards (word-by-word search retry, end the run after wait/close/ask, backend refuses premature closes) moved qwen to 16/20.</li><li><b>Let the model choose and the tools compute.</b> Ranking, dose maths and closing are Go.</li><li><b>Case design matters:</b> 3 of qwen's 4 misses come from how placeholder cases are written.</li><li><b>Pick the model per job:</b> qwen fails on images, gemma4:31b reads the test box.</li></ul></div></div>
+<div class="card" style="margin-top:12px;background:var(--deep);color:#fff;border:0;display:flex;align-items:center;gap:18px">
+<svg viewBox="0 0 120 120" width="70" height="70"><circle cx="60" cy="60" r="60" fill="#2f7d68"/><path d="M14 120c2-28 20-40 46-40s44 12 46 40Z" fill="#fff"/><path d="M48 82 60 104 72 82Z" fill="#2f7d68"/><rect x="53" y="64" width="14" height="19" rx="6" fill="#e0ad86"/><circle cx="60" cy="49" r="22" fill="#efc4a0"/><path d="M37 50c-3-22 11-29 24-29 15 0 25 9 22 29-3-10-11-15-23-15-11 0-19 5-23 15Z" fill="#3a2a21"/><circle cx="52" cy="52" r="2.3" fill="#22302c"/><circle cx="68" cy="52" r="2.3" fill="#22302c"/><path d="M53 60q7 6 14 0" fill="none" stroke="#8a4b3a" stroke-width="2.2" stroke-linecap="round"/><rect x="69" y="93" width="24" height="10" rx="2.5" fill="#2f7d68"/></svg>
+<div><p style="font-size:15px;margin:0;color:#fff;font-weight:700">The AI talks. The rules decide. You get your medicine.</p><p style="margin:4px 0 0;color:#cfe3da">Run it: <code>bash scripts/dev_up.sh</code>, open the web app at port 5500. Docs: README.md, docs/ARCHITECTURE.md, docs/DEMO.md, CONTRACT.md.</p></div></div>
+<div class="foot"><span>Sources: docs/BENCHMARKS.md, owner's brief roadmap, agent/tools/photos.py</span><span>9</span></div></section>
+</body></html>

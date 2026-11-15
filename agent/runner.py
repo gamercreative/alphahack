@@ -222,6 +222,8 @@ def run_scripted(run_id: str, enquiry_id: str) -> tuple[str, str, int]:
     try:
         state = http_call("GET", f"/api/v1/enquiries/{enquiry_id}")
         scripted.decide(state, call)
+    except RunEnded:
+        pass  # a terminal tool succeeded: the run ends here and stays "completed"
     except Exception as e:
         status, error = "failed", str(e)[:500]
     return status, error, steps
